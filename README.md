@@ -8,4 +8,4 @@ in the following instruction:
 4. **template**: standard DeepLearing structures.
 5. **test**: codes to deploy some experiments.
 
-&emsp: The pair_ind folder contains the pathes of the signature image
+&emsp; The pair_ind folder contains the pathes of the signature image
