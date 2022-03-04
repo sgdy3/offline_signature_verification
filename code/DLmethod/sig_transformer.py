@@ -11,7 +11,7 @@ from einops.layers.torch import Rearrange
 from torch.utils.data import  Dataset,DataLoader
 import numpy as np
 import cv2
-from code.auxiliary.preprocessing import  hafemann_preprocess
+from auxiliary.preprocessing import  hafemann_preprocess
 from torch import optim
 
 
