@@ -1,9 +1,8 @@
 """
 基于VIT方法的脱机签名认证方法
 """
-
-
-
+import os.path
+import argparse
 import torch
 from torch import nn
 from einops import rearrange, repeat
@@ -13,6 +12,11 @@ import numpy as np
 import cv2
 from auxiliary.preprocessing import  hafemann_preprocess
 from torch import optim
+import sklearn.svm
+import sklearn.pipeline as pipeline
+import sklearn.preprocessing as preprocessing
+from sklearn.metrics import roc_curve, auc
+import matplotlib.pyplot as plt
 
 
 class MultiHeadAttention(nn.Module):
@@ -36,6 +40,7 @@ class MultiHeadAttention(nn.Module):
             Rearrange('b n (h d) -> b h n d',h=head_num)
         )
         self.activation=nn.Softmax(dim=-1)
+
 
     def forward(self,embedding):
         Q = self.Q_mapping(embedding)
@@ -103,6 +108,8 @@ class Vit(nn.Module):
             nn.Sigmoid()
         )
 
+        self.feature_out=[]
+
     def forward(self,img):
         embedding = self.patch_embedding(img)  # 将输入图片按patch flatten，格式由b*c*h*w变成b* (p*p) * (h%p*w%p*c)
         batch_size,patch_num,_ = embedding.shape
@@ -117,7 +124,9 @@ class Vit(nn.Module):
             embedding = mlp(embedding)+embedding
 
         embedding = embedding[:,0]  # 取出classs token进行后续判别
-
+        #  测试阶段记录features
+        if not self.training:
+            self.feature_out.append(embedding.detach())
         class_labs = self.MLPClassHead(embedding)
         auth_labs = self.MLPAuthHead(embedding)
         return class_labs, auth_labs
@@ -158,12 +167,22 @@ def compute_accuracy(class_scores,true_lab,auth_scores,auth_lab):
     auth_correct = (pred_auth.flatten()==auth_lab).sum()
     return class_correct/true_lab.shape[0],auth_correct/auth_lab.shape[0]
 
+
+
 if __name__=="__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-m','--mode',choices=['train','test'],default='train',help='training or testing phase')
+    args = parser.parse_args()
+
     org_path = r'E:\material\signature\signatures\full_org\original_%d_%d.png'
     forg_path = r'E:\material\signature\signatures\full_forg\forgeries_%d_%d.png'
+    save_path =  '../../weights/sig_transformer'
+    print(os.path.abspath(save_path))
+    np.random.seed(3)
     train_user=np.random.choice(range(1,56),50,replace=False)
     test_user=np.arange(1,56)[~np.isin(np.arange(1,56),train_user)] # 得到测试集用户
 
+    # 训练集划分
     train_path=[]
     train_label=[]
     label_dict=dict(zip(train_user,range(train_user.shape[0])))  # 原用户标签映射到用户数量range之内
@@ -176,11 +195,30 @@ if __name__=="__main__":
     train_path=np.array(train_path)
     train_label=np.array(train_label)
 
+
+    # 测试集划分
+    test_path=[]
+    test_label=[]
+    for user in test_user:
+        for id in range(1,25):
+            test_path.append(org_path%(user,id))
+            test_path.append(forg_path%(user,id))
+            test_label.append([user,1])
+            test_label.append([user,0])  # 不计算损失，无需进行标签映射
+    test_path=np.array(test_path)
+    test_label=np.array(test_label)
+
     BATCHSIZE=32
     EPOCHS=10
     LEARNING_RATE=0.0003
     cuda=torch.cuda.is_available()
     v = Vit(depth=8,img_shape=(150,220),embedding_dim=512,p_w=20,p_h=30,num_class=50)
+
+    train_dataset=dataset(train_path,train_label)
+    train_loader=DataLoader(train_dataset,batch_size=BATCHSIZE,shuffle=True,num_workers=0)
+    test_dataset=dataset(test_path,test_label)
+    test_loader=DataLoader(test_dataset,batch_size=BATCHSIZE,shuffle=False,num_workers=0)
+
     if cuda:
         v = v.cuda()
 
@@ -189,32 +227,111 @@ if __name__=="__main__":
         criterion = criterion.cuda()
     optimizer = optim.Adam(v.parameters(),lr=LEARNING_RATE)
 
+    if args.mode == 'train':
+        v.train()
+        print("training stage start")
+        # summary(v,(1,150,220),32)
+        for epoch in range(1, EPOCHS + 1):
+            print(f'epoch{epoch} starts')
 
-    # summary(v,(1,150,220),32)
-    train_dataset=dataset(train_path,train_label)
-    train_loader=DataLoader(train_dataset,batch_size=BATCHSIZE,shuffle=True,num_workers=0)
-    for epoch in range(1, EPOCHS + 1):
-        print(f'epoch{epoch} starts')
+            it = iter(train_loader)
 
+            for i in range(len(train_loader)):
+                img,class_lab,auth_lab = next(it)
+                if cuda:
+                    img = img.cuda()
+                    class_lab = class_lab.cuda()
+                    auth_lab = auth_lab.cuda()
+
+                pred_class,pred_auth = v(img)
+                loss =criterion(pred_class,pred_auth,class_lab,auth_lab)
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                acc =compute_accuracy(pred_class,class_lab,pred_auth,auth_lab)
+
+                print('Epoch[{}/{}], iter {}, loss:{:.6f},class_acc:{:.4f},auth_acc:{:.4f}'.format(epoch, EPOCHS, i, loss.item(),acc[0],acc[1]))
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        torch.save(v.state_dict(),save_path+'/sig_transformer.pt')
+    else:
+        v.eval()
+        v.load_state_dict(torch.load(save_path+'/sig_transformer.pt'))
+        print("testing stage start")
+
+
+        # 比较有意思的中间层输出提取方法，解析见后续博客
+        # features=[]
+        # def hook(module,input,output):
+        #     features.append(input)
+        #     return None
+        # v.MLPClassHead.register_forward_hook(hook)
+
+        #  提取训练集用户的特征作为反例
         it = iter(train_loader)
-
         for i in range(len(train_loader)):
-            img,class_lab,auth_lab = next(it)
+            test_img,class_lab,auth_lab = next(it)
             if cuda:
-                img = img.cuda()
-                class_lab = class_lab.cuda()
-                auth_lab = auth_lab.cuda()
+                test_img = test_img.cuda()
+            v(test_img)
+        neg_vecs=torch.concat(v.feature_out)
+        neg_vecs=neg_vecs.cpu().numpy()
+        v.feature_out=[]
 
-            pred_class,pred_auth = v(img)
-            loss =criterion(pred_class,pred_auth,class_lab,auth_lab)
+        #  提取测试集用户的特征
+        it = iter(test_loader)
+        for i in range(len(test_loader)):
+            test_img,class_lab,auth_lab = next(it)
+            if cuda:
+                test_img = test_img.cuda()
+            v(test_img)
+        test_vec=torch.concat(v.feature_out)
+        test_vec = test_vec.cpu().numpy()
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            acc =compute_accuracy(pred_class,class_lab,pred_auth,auth_lab)
+        result=[]
+        #  为每个用户设计用用户相关SVM
+        for (i,user) in enumerate(test_user):
+            user_ind=np.where(test_label[:,0]==user)[0] # test库中用户记录
+            user_pos_ind=np.where((test_label[:,0]==user) & (test_label[:,1]==1))[0] # test库中用户真实样本记录
+            user_train_ind=np.random.choice(user_pos_ind,12,replace=False) # 随机采样24个真实签名中的12个做正样本
+            user_test_ind=user_ind[~np.isin(user_ind,user_train_ind)]
 
-            print('Epoch[{}/{}], iter {}, loss:{:.6f},class_acc:{:.4f},auth_acc:{:.4f}'.format(epoch, EPOCHS, i, loss.item(),acc[0],acc[1]))
 
+            skew = neg_vecs.shape[0] / user_pos_ind.shape[0]
+            svm_input=np.vstack([neg_vecs,test_vec[user_pos_ind,:]])
+            svm_label=np.concatenate([np.zeros(neg_vecs.shape[0]),np.ones(user_pos_ind.shape[0])])
+            svm=sklearn.svm.SVC(class_weight={1:skew},gamma=0.0048,probability=True)
+            svm_with_scaler = pipeline.Pipeline([('scaler', preprocessing.StandardScaler(with_mean=False)),
+                                                 ('classifier', svm)])
+            svm_with_scaler.fit(svm_input,svm_label)
+            hyper_dist=svm_with_scaler.decision_function(test_vec[user_test_ind,:])
+            result.append(np.vstack([hyper_dist,test_label[user_test_ind,1]]))
+
+        result=np.hstack(result).T
+
+        fpr, tpr, thresholds = roc_curve(result[:,1],result[:,0], pos_label=1)
+        fnr = 1 -tpr
+        EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
+        eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
+        pred_label=result[:,1].copy()
+        pred_label[pred_label>eer_threshold]=1
+        pred_label[pred_label<=eer_threshold]=0
+        acc=(pred_label==result[:,1]).sum()/result.shape[0]
+
+        area = auc(fpr, tpr)
+        plt.figure()
+        lw = 2
+        plt.plot(fpr, tpr, color='darkorange',
+                 lw=lw, label='ROC curve (area = %0.2f)' % area)
+        plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title('ROC on testing set')
+        plt.legend(loc="lower right")
+        plt.show()
 
 
 
