@@ -2,7 +2,7 @@ from keras.layers import Conv2D,MaxPool2D,Dense,Input,BatchNormalization,Lambda,
 from keras.models import Sequential,Model
 from keras.losses import categorical_crossentropy,binary_crossentropy
 import keras.backend as K
-from tensorflow.keras.optimizers import SGD
+from tensorflow.python.keras.optimizer_v1 import SGD
 import pickle
 import numpy as np
 import tensorflow as tf

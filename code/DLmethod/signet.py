@@ -2,7 +2,7 @@ import pandas as pd
 from keras.layers import  Conv2D,BatchNormalization,Dense,Input,MaxPool2D,Activation,Flatten
 from keras.models import Sequential,Model
 import numpy as np
-from tensorflow.keras.optimizers import SGD
+from tensorflow.python.keras.optimizer_v1 import SGD
 import os
 import tensorflow as tf
 from auxiliary.preprocessing import preprocess
