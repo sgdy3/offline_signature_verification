@@ -215,9 +215,9 @@ if __name__=="__main__":
         user_train_ind=np.random.choice(user_pos_ind,12,replace=False) # 随机采样24个真实签名中的12个做正样本
         user_test_ind=user_ind[~np.isin(user_ind,user_train_ind)]
 
-        skew = neg_vecs.shape[0] / user_pos_ind.shape[0]
-        svm_input=np.vstack([neg_vecs,test_vec[user_pos_ind,:]])
-        svm_label=np.concatenate([np.zeros(neg_vecs.shape[0]),np.ones(user_pos_ind.shape[0])])
+        skew = neg_vecs.shape[0] / user_train_ind.shape[0]
+        svm_input=np.vstack([neg_vecs,test_vec[user_train_ind,:]])
+        svm_label=np.concatenate([np.zeros(neg_vecs.shape[0]),np.ones(user_train_ind.shape[0])])
         svm=sklearn.svm.SVC(class_weight={1:skew},gamma=0.0048,probability=True)
         svm_with_scaler = pipeline.Pipeline([('scaler', preprocessing.StandardScaler(with_mean=False)),
                                                ('classifier', svm)])
