@@ -165,7 +165,7 @@ def save_pairs():
     forg_num = 24  # signatures of each writer
     org_num = 24
 
-    M = 25  # num of writers for training
+    M = 50  # num of writers for training
     K = forg_author - M
     test_writer = np.random.choice(range(1,org_author+1),K,replace=False)
     train_writer = np.arange(1, forg_author + 1)
