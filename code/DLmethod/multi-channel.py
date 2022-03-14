@@ -297,14 +297,14 @@ if __name__=='__main__':
     with open('../../pair_ind/cedar_ind/train_index.pkl', 'rb') as train_index_file:
         train_ind = pickle.load(train_index_file)
     train_ind = np.array(train_ind)
-    #train_ind=train_ind[np.random.permutation(train_ind.shape[0]),:]
+    # 预先对ind打乱实现shuffle，避免训练过程中shuffle耗时过长
+    train_ind=train_ind[np.random.permutation(train_ind.shape[0]),:]
 
     dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1], train_ind[:, 2].astype(np.int8)))
 
 
     image = dataset.map(
         lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
-    image=image.shuffle(2000)
     start=time.time()
     doc=Mnet.train(image)
     end=time.time()
