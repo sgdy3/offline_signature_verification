@@ -130,6 +130,9 @@ class Multi_channel():
             acc_loss=[]
             doc=[]
             for batch in img_set:
+                # if((times>50) and (times%10==0)):
+                #     lr=self.Mnet.optimizer.lr
+                #     self.Mnet.optimizer.lr=0.99*lr
                 label=keras.utils.np_utils.to_categorical(batch[6])
                 loss,metric=self.Mnet.train_on_batch(batch,label)
                 doc.append([loss,metric])
@@ -301,7 +304,7 @@ if __name__=='__main__':
 
     image = dataset.map(
         lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
-    #image=image.shuffle(500)
+    image=image.shuffle(2000)
     start=time.time()
     doc=Mnet.train(image)
     end=time.time()
