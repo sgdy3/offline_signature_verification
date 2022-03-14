@@ -180,10 +180,12 @@ def load_img(file_name1,file_name2,label,ext_h=820,ext_w=890):
     pt=[i.pt for i in kp]
     pt=np.array(pt)
     loc=np.zeros((pt.shape[0],4))
-    loc[:,0]=pt[:,1]-2
-    loc[:,1]=pt[:,0]-2
-    loc[:,2]=pt[:,1]+2
-    loc[:,3]=pt[:,0]+2 # 囊括特征点周围3*3的领域,用检测出的size的话太大了
+    if pt.shape[0]!=0:
+        # 存在检测不到角点的情况
+        loc[:,0]=pt[:,1]-2
+        loc[:,1]=pt[:,0]-2
+        loc[:,2]=pt[:,1]+2
+        loc[:,3]=pt[:,0]+2 # 囊括特征点周围3*3的领域,用检测出的size的话太大了
     loc=loc.astype(int)
     contours_map=np.zeros(temp_img.shape)
     if len(kp)>20:
@@ -218,10 +220,12 @@ def load_img(file_name1,file_name2,label,ext_h=820,ext_w=890):
     pt=[i.pt for i in kp]
     pt=np.array(pt)
     loc=np.zeros((pt.shape[0],4))
-    loc[:,0]=pt[:,1]-2
-    loc[:,1]=pt[:,0]-2
-    loc[:,2]=pt[:,1]+2
-    loc[:,3]=pt[:,0]+2 # 囊括特征点周围3*3的领域,用检测出的size的话太大了
+    if pt.shape[0]!=0:
+        # 存在检测不到角点的情况
+        loc[:,0]=pt[:,1]-2
+        loc[:,1]=pt[:,0]-2
+        loc[:,2]=pt[:,1]+2
+        loc[:,3]=pt[:,0]+2 # 囊括特征点周围3*3的领域,用检测出的size的话太大了
     loc=loc.astype(int)
     contours_map=np.zeros(temp_img.shape)
     if len(kp)>20:
@@ -300,64 +304,65 @@ if __name__=='__main__':
     # 预先对ind打乱实现shuffle，避免训练过程中shuffle耗时过长
     train_ind=train_ind[np.random.permutation(train_ind.shape[0]),:]
 
-    dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1], train_ind[:, 2].astype(np.int8)))
 
-
-    image = dataset.map(
-        lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
-    start=time.time()
-    doc=Mnet.train(image)
-    end=time.time()
-
-    with open('../../pair_ind/cedar_ind/test_index.pkl', 'rb') as test_index_file:
-        test_ind = pickle.load(test_index_file)
-    test_ind = np.array(test_ind)
-    test_set= tf.data.Dataset.from_tensor_slices((test_ind[:, 0], test_ind[:, 1], test_ind[:, 2].astype(np.int8)))
-    test_image = test_set.map(
-        lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
-
-    start=time.time()
-    result=[]
-    label=[]
-    cost=[]
-    for b in test_image.batch(32):
-        result.append(Mnet.Mnet.predict_on_batch(b))
-        label.append(b[6].numpy())
-    end=time.time()
-    print("time cost : %f"%(end-start))
-
-    temp=np.zeros((1,2))
-    for i in result:
-        temp=np.vstack([temp,i]) # 由于batch为32时不能整除，返回result的shape不都是32不能直接化为ndarray
-    temp=temp[1:,:]
-    result=temp.copy()
-    temp=np.array([])
-    for i in label:
-        temp=np.concatenate([temp,i])
-    label=temp.copy()
-
-    fpr, tpr, thresholds = roc_curve(label,result[:,1], pos_label=1)
-    fnr = 1 -tpr
-    EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
-    eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
-    pred_label=result[:,1].copy()
-    pred_label[pred_label>eer_threshold]=1
-    pred_label[pred_label<=eer_threshold]=0
-    acc=(pred_label==label).sum()/label.size
-
-    area = auc(fpr, tpr)
-    plt.figure()
-    lw = 2
-    plt.plot(fpr, tpr, color='darkorange',
-             lw=lw, label='ROC curve (area = %0.5f)' % area)
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC on training set')
-    plt.legend(loc="lower right")
-    plt.show()
+    # dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1], train_ind[:, 2].astype(np.int8)))
+    #
+    #
+    # image = dataset.map(
+    #     lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
+    # start=time.time()
+    # doc=Mnet.train(image)
+    # end=time.time()
+    #
+    # with open('../../pair_ind/cedar_ind/test_index.pkl', 'rb') as test_index_file:
+    #     test_ind = pickle.load(test_index_file)
+    # test_ind = np.array(test_ind)
+    # test_set= tf.data.Dataset.from_tensor_slices((test_ind[:, 0], test_ind[:, 1], test_ind[:, 2].astype(np.int8)))
+    # test_image = test_set.map(
+    #     lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
+    #
+    # start=time.time()
+    # result=[]
+    # label=[]
+    # cost=[]
+    # for b in test_image.batch(32):
+    #     result.append(Mnet.Mnet.predict_on_batch(b))
+    #     label.append(b[6].numpy())
+    # end=time.time()
+    # print("time cost : %f"%(end-start))
+    #
+    # temp=np.zeros((1,2))
+    # for i in result:
+    #     temp=np.vstack([temp,i]) # 由于batch为32时不能整除，返回result的shape不都是32不能直接化为ndarray
+    # temp=temp[1:,:]
+    # result=temp.copy()
+    # temp=np.array([])
+    # for i in label:
+    #     temp=np.concatenate([temp,i])
+    # label=temp.copy()
+    #
+    # fpr, tpr, thresholds = roc_curve(label,result[:,1], pos_label=1)
+    # fnr = 1 -tpr
+    # EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
+    # eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
+    # pred_label=result[:,1].copy()
+    # pred_label[pred_label>eer_threshold]=1
+    # pred_label[pred_label<=eer_threshold]=0
+    # acc=(pred_label==label).sum()/label.size
+    #
+    # area = auc(fpr, tpr)
+    # plt.figure()
+    # lw = 2
+    # plt.plot(fpr, tpr, color='darkorange',
+    #          lw=lw, label='ROC curve (area = %0.5f)' % area)
+    # plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    # plt.xlim([0.0, 1.0])
+    # plt.ylim([0.0, 1.05])
+    # plt.xlabel('False Positive Rate')
+    # plt.ylabel('True Positive Rate')
+    # plt.title('ROC on training set')
+    # plt.legend(loc="lower right")
+    # plt.show()
 
 
 
