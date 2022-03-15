@@ -6,7 +6,7 @@ from itertools import combinations,product
 import pickle
 import os
 import tensorflow as tf
-from preprocessing import preprocess
+from auxiliary.preprocessing import preprocess,hafemann_preprocess
 import re
 import pandas as pd
 
@@ -263,11 +263,15 @@ def load_img(file_name1,file_name2,label,ext_h=820,ext_w=890):
     img1 = tf.io.read_file(file_name1, 'rb')  # 读取图片
     img1 = tf.image.decode_png(img1, channels=3)
     img1 = tf.image.rgb_to_grayscale(img1)
-    img1=preprocess(img1,ext_h,ext_w)
+    # img1=preprocess(img1,ext_h,ext_w)
+    img1=hafemann_preprocess(img1.numpy(),ext_h,ext_w)
+    img1=np.expand_dims(img1,-1)
     img2 = tf.io.read_file(file_name2, 'rb')  # 读取图片
     img2 = tf.image.decode_png(img2, channels=3)
     img2 = tf.image.rgb_to_grayscale(img2)
-    img2=preprocess(img2,ext_h,ext_w)
+    # img2=preprocess(img2,ext_h,ext_w)
+    img2=hafemann_preprocess(img2.numpy(),ext_h,ext_w)
+    img2=np.expand_dims(img2,-1)
     return img1,img2,label
 
 
