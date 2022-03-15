@@ -13,24 +13,24 @@ import tensorflow as tf
 from auxiliary.load_data import load_img
 import os
 import matplotlib.pyplot as plt
-from auxiliary.preprocessing import  preprocess
+from auxiliary.preprocessing import preprocess
 from sklearn.metrics import roc_curve, auc
 
 
 
 class Siamase():
     def __init__(self):
-        self.rows=155
+        self.rows=150
         self.cols=220
         self.channles=1
         self.imgshape = (self.rows, self.cols, self.channles)
 
-        self.batchsize=40
+        self.batchsize=32
         self.epochs=10
 
 
         self.subnet=self.bulid_model()
-        self.optimizer= adam_v2.Adam(learning_rate=0.0003,beta_1=0.5)
+        self.optimizer= adam_v2.Adam(learning_rate=0.0003)
 
         sig1=Input(shape=self.imgshape)
         sig2=Input(shape=self.imgshape)
@@ -114,27 +114,25 @@ class Siamase():
             filepath = os.path.join(save_dir, 'siamase_weight.h5')
             dataset = dataset.shuffle(100).batch(self.batchsize).repeat(self.epochs)
             i=0
-            times = 0
             doc=[]
             pre_loss=[]
             min_loss=100 # manually set
             for batch in dataset:
                 loss = self.SigNet.train_on_batch(batch)
                 doc.append(loss)
-                print("%d loss: %f " % (i, loss))
-                if(i%10==0):
-                    times += 1
-                    if(early_stop(10,loss,pre_loss,threshold=0.5)):
-                        break
-                if(loss<min_loss and times>10): # to avoid frequently saving in the early stage
-                    print('save')
-                    self.SigNet.save_weights(filepath)
-                    min_loss=loss
+                print("%d round loss: %f " % (i, loss))
+                if(early_stop(20,loss,pre_loss,threshold=0.5)):
+                    print("training complete")
+                    break
+                if(i>500):
+                    print("enough rounds!!")
+                    break
                 i+=1
+            self.SigNet.save_weights(filepath)
             return doc
 
 
-def early_stop(stop_round,loss,pre_loss,threshold=0.002):
+def early_stop(stop_round,loss,pre_loss,threshold=0.005):
     '''
     early stop setting
     :param stop_round: rounds under caculated
@@ -170,15 +168,14 @@ def judegement(T,N,d):
 
 
 def curve_eval(label,result):
-    fpr, tpr, thresholds = roc_curve(label,result, pos_label=1)
-    fnr = 1 -tpr
-    EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
+    fpr, tpr, thresholds = roc_curve(label,result, pos_label=0)
     fnr = 1 -tpr
     EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
     eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
     pred_label=result.copy()
     pred_label[pred_label>eer_threshold]=1
     pred_label[pred_label<=eer_threshold]=0
+    pred_label=1-pred_label
     acc=(pred_label==label).sum()/label.size
     area = auc(fpr, tpr)
     print("EER:%f"%EER)
@@ -200,9 +197,11 @@ def curve_eval(label,result):
 
 if __name__=='__main__':
     SigNet=Siamase()
-    with open('./pair_ind/train_index.pkl', 'rb') as train_index_file:
+    with open('../../pair_ind/cedar_ind/train_index.pkl', 'rb') as train_index_file:
         train_ind = pickle.load(train_index_file)
     train_ind = np.array(train_ind)
+    train_ind=train_ind[np.random.permutation(train_ind.shape[0]),:]
+
     dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1], train_ind[:, 2].astype(np.int8)))
     #dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1],train_ind[:, 2],train_ind[:, 3], train_ind[:, 4].astype(np.int8)))
 
@@ -210,8 +209,7 @@ if __name__=='__main__':
         lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8, tf.uint8, tf.int8]))
     #image = dataset.map(
         #lambda x1,x2,y1,y2,z: tf.py_function(func=load_img, inp=[x1,x2,y1,y2,z], Tout=[tf.uint8,tf.uint8,tf.int8]))
-    image=image.shuffle(500)
-    doc=SigNet.train(image,'siamase_weight.h5')
+    doc=SigNet.train(image)
 
     mode='train'
 
@@ -227,18 +225,22 @@ if __name__=='__main__':
         result=[]
         label=[]
         cost=[]
-        for b in image.batch(40):
+        for b in image.batch(32):
             result.append(SigNet.SigNet.predict_on_batch(b)[0])
             cost.append(SigNet.SigNet.predict_on_batch(b)[1])
             label.append(b[2].numpy())
-        temp=np.array([])
+
+        # 由于用于数据集大小不一定能整除batch，结果shape不同，不能直接合并
+        temp=np.zeros((1,2))
         for i in result:
-            temp=np.concatenate([temp,i])
+            temp=np.vstack([temp,i])
+        temp=temp[1:,:]
         result=temp.copy()
         temp=np.array([])
         for i in label:
             temp=np.concatenate([temp,i])
         label=temp.copy()
+
         cost=np.array(cost).reshape(-1,1)
         curve_eval(label,result)
         temp_result=np.vstack([result,label])
@@ -259,16 +261,16 @@ if __name__=='__main__':
 
     else:
         threshold=0 # must implement training stage to speacify threshold
-        with open('../../pair_ind/sigcomp_ind/test_index.pkl', 'rb') as test_index_file:
+        with open('../../pair_ind/cedar_ind/test_index.pkl', 'rb') as test_index_file:
             test_ind = pickle.load(test_index_file)
         test_ind = np.array(test_ind)
         test_set= tf.data.Dataset.from_tensor_slices((test_ind[:, 0], test_ind[:, 1], test_ind[:, 2].astype(np.int8)))
         test_image = test_set.map(
-            lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z,1100,2900], Tout=[tf.uint8, tf.uint8, tf.int8]))
+            lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8, tf.uint8, tf.int8]))
         result=[]
         label=[]
         cost=[]
-        for b in test_image.batch(40):
+        for b in test_image.batch(32):
             result.append(SigNet.SigNet.predict_on_batch(b)[0])
             cost.append(SigNet.SigNet.predict_on_batch(b)[1])
             label.append(b[2].numpy())
