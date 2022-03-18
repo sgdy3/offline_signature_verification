@@ -141,11 +141,10 @@ def preprocess(img, ext_h, ext_w,dst_h=150,dst_w=220):
     #img=otsu(img.numpy())
     threshold=cv2.threshold(img.numpy().astype(np.uint8),0,255,cv2.THRESH_TOZERO_INV+cv2.THRESH_OTSU)[0]#大津法确定阈值
     img=img.numpy()
-    #img[img>threshold]=255 # 大于阈值的变为白色
+    # img[img>threshold]=255 # 大于阈值的变为白色
     img[img<threshold]=255-img[img<threshold]
     img=255-img # 背景黑色，笔迹白色
     img=img.astype(np.uint8)
-    img=tf.convert_to_tensor(img)
     return img
 
 
@@ -188,14 +187,13 @@ if __name__=="__main__":
     img1 = tf.image.rgb_to_grayscale(img1)
     after1=hafemann_preprocess(img1,820,890)
     after2=preprocess(img1,820,890)
-    temp1=after1.numpy()
-    temp1=np.squeeze(temp1)
+    temp1=after1.copy()
     temp2=after2.numpy()
     temp2=np.squeeze(temp2)
     plt.figure()
     plt.subplot(131)
-    plt.imshow(img1.numpy(),cmap='gray')
+    plt.imshow(np.squeeze(img1.numpy()),cmap='gray')
     plt.subplot(132)
-    plt.imshow(after1,cmap='gray')
+    plt.imshow(temp1,cmap='gray')
     plt.subplot(133)
-    plt.imshow(after2,cmap='gray')
+    plt.imshow(temp2,cmap='gray')
