@@ -1,0 +1,13 @@
+# Project exclude paths
+/images/
+/logs/
+/NetWeights/
+/venv/
+/.idea/
+/pip
+/code/odds/
+/pair_ind/
+/code/test/test.py
+/weights/
+/code/auxiliary/__pycache__/
+
