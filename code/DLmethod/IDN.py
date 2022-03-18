@@ -7,7 +7,9 @@ from torch import optim
 import cv2
 import time
 from torch.utils.tensorboard import SummaryWriter
-from torchsummary import summary
+from auxiliary.preprocessing import hafemann_preprocess
+import matplotlib.pyplot as plt
+from sklearn.metrics import roc_curve,auc
 
 class stream(nn.Module):
     def __init__(self):
@@ -192,9 +194,12 @@ class dataset(Dataset):
         refer, test, label = ind
         refer_img = cv2.imread(refer, 0)
         test_img = cv2.imread(test, 0)
-        refer_img = preprocess(refer_img,820,890)
+        # refer_img = preprocess(refer_img,820,890)
+        refer_img = hafemann_preprocess(refer_img,820,890)
         refer_img=np.expand_dims(refer_img,axis=0)
-        test_img = preprocess(test_img,820,890)
+
+        # test_img = preprocess(test_img,820,890)
+        test_img = hafemann_preprocess(test_img,820,890)
         test_img=np.expand_dims(test_img,axis=0)
         refer_test = np.concatenate((refer_img, test_img), axis=0)
         return torch.FloatTensor(refer_test), float(label)
@@ -228,6 +233,36 @@ class loss(nn.Module):
         return torch.mean(alpha_1*loss_1 + alpha_2*loss_2 + alpha_3*loss_3)
 
 
+def draw_fig(pred,label):
+    fpr, tpr, thresholds = roc_curve(label,pred, pos_label=1)
+    fnr = 1 -tpr
+    EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
+    eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
+    pred_label=pred.copy()
+    pred_label[pred_label>eer_threshold]=1
+    pred_label[pred_label<=eer_threshold]=0
+    acc=(pred_label==label).sum()/label.size
+    pred_label=pred.copy()
+    pred_label[pred_label>0.5]=1
+    pred_label[pred_label<=0.5]=0
+    acc_half=(pred_label==label).sum()/label.size
+
+    area = auc(fpr, tpr)
+    plt.figure()
+    lw = 2
+    plt.plot(fpr, tpr, color='darkorange',
+             lw=lw, label='ROC curve (area = %0.5f)' % area)
+    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC on testing set')
+    plt.legend(loc="lower right")
+    plt.show()
+
+    return area,EER,acc,acc_half
+
 if __name__ == '__main__':
     x = torch.ones(1, 1, 32, 32)
     y = torch.ones(1, 1, 32, 32)
@@ -243,14 +278,12 @@ if __name__ == '__main__':
 
 
 
-
-
-    BATCH_SIZE = 20
+    BATCH_SIZE = 32
     EPOCHS = 1
-    LEARNING_RATE = 0.001
+    LEARNING_RATE = 0.0003
 
     np.random.seed(0)
-    torch.manual_seed(1)
+    torch.manual_seed(2)
 
     cuda = torch.cuda.is_available()
 
@@ -297,28 +330,46 @@ if __name__ == '__main__':
 
             accuracy = compute_accuracy(predicted, labels)
 
-            writer.add_scalar(t+'/train_loss', loss.item(), iter_n)
-            writer.add_scalar(t+'/train_accuracy', accuracy, iter_n)
+            # writer.add_scalar(t+'/train_loss', loss.item(), iter_n)
+            # writer.add_scalar(t+'/train_accuracy', accuracy, iter_n)
 
-            if i % 100== 0:
-                with torch.no_grad():
-                    accuracys = []
-                    for i_, (inputs_, labels_) in enumerate(test_loader):
-                        labels_ = labels_.float()
-                        if cuda:
-                            inputs_, labels_ = inputs_.cuda(), labels_.cuda()
-                        predicted_ = model(inputs_)
-                        accuracys.append(compute_accuracy(predicted_, labels_))
-                    accuracy_ = sum(accuracys) / len(accuracys)
-                    writer.add_scalar(t+'/test_accuracy', accuracy_, iter_n)
-                print('test loss:{:.6f}'.format(accuracy_))
+            # if i % 100== 0:
+            #     with torch.no_grad():
+            #         accuracys = []
+            #         for i_, (inputs_, labels_) in enumerate(test_loader):
+            #             labels_ = labels_.float()
+            #             if cuda:
+            #                 inputs_, labels_ = inputs_.cuda(), labels_.cuda()
+            #             predicted_ = model(inputs_)
+            #             accuracys.append(compute_accuracy(predicted_, labels_))
+            #         accuracy_ = sum(accuracys) / len(accuracys)
+            #         writer.add_scalar(t+'/test_accuracy', accuracy_, iter_n)
+            #     print('test loss:{:.6f}'.format(accuracy_))
 
             iter_n += 1
 
             if i == 500:
-                torch.save(model.state_dict(), 'model.pth')
+                torch.save(model.state_dict(), '../NetWeights/IDN/IDN.pth')
+                break
 
-            if i % 10 == 0:
-                print('Epoch[{}/{}], iter {}, loss:{:.6f}, accuracy:{}'.format(epoch, EPOCHS, i, loss.item(), accuracy))
+            print('Epoch[{}/{}], iter {}, loss:{:.6f}, accuracy:{}'.format(epoch, EPOCHS, i, loss.item(), accuracy))
 
     writer.close()
+
+    result=[]
+    label=[]
+    with torch.no_grad():
+        it=iter(test_loader)
+        for i in range(len(test_loader)):
+            inputs,labels=next(it)
+            #torch.cuda.empty_cache()  # 释放GPU显存，不确定有没有用，聊胜于无吧
+
+            if cuda:
+                inputs,labels=inputs.cuda(),labels.cuda()
+            pred=model(inputs)
+            result.append((0.3*pred[0]+0.4*pred[1]+0.3*pred[2]).cpu().numpy())
+            label.append(labels.cpu())
+
+    result=np.vstack(result)
+    label=np.hstack(label)
+    draw_fig(result,label)

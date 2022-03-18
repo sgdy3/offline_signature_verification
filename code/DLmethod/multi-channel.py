@@ -10,7 +10,7 @@ import cv2 as cv
 import pickle
 import time
 import matplotlib.pyplot as plt
-from auxiliary.preprocessing import hafemann_preprocess
+from auxiliary.preprocessing import hafemann_preprocess,preprocess
 from sklearn.metrics import roc_curve, auc
 import os
 
@@ -34,7 +34,7 @@ class Multi_channel():
         self.f_net3._name='inverse_feature'
         self.discriminator=self.judging_net()
         self.discriminator_name='discriminator'
-        self.optimizer= adam_v2.Adam(learning_rate=0.0003,beta_1=0.5)
+        self.optimizer= adam_v2.Adam(learning_rate=0.0003)
 
         sig1=Input(shape=self.imgshape,name='contours map1')
         sig2=Input(shape=self.imgshape,name='edge map1')
@@ -140,13 +140,16 @@ class Multi_channel():
                 if(early_stop(20,loss,acc_loss)):
                     print("training complete")
                     print("Final result=> loss:%f, acc:%f%% " % (loss,metric))
-                    self.Mnet.save_weights(filepath)
+                    # self.Mnet.save_weights(filepath)
+                    break
+                if (times>500):
+                    print("enough rounds!!")
                     break
                 times+=1
             return doc
 
 
-def early_stop(stop_round,loss,pre_loss,threshold=0.002):
+def early_stop(stop_round,loss,pre_loss,threshold=0.005):
     '''
     early stop setting
     :param stop_round: rounds under caculated
@@ -171,12 +174,13 @@ def load_img(file_name1,file_name2,label,ext_h=820,ext_w=890):
     img1 = tf.io.read_file(file_name1, 'rb')  # 读取图片
     img1 = tf.image.decode_png(img1, channels=3)
     img1 = tf.image.rgb_to_grayscale(img1)
-    #img1=preprocess(img1,ext_h,ext_w)
+    # img1=preprocess(img1,ext_h,ext_w)
     img1=hafemann_preprocess(img1.numpy(),ext_h,ext_w)
     img1=np.expand_dims(img1,axis=2)
+
     surf=cv.xfeatures2d.SURF_create(400)
     kp, des = surf.detectAndCompute(img1,None)
-    temp_img=np.squeeze(img1)
+    temp_img=np.squeeze(img1).copy()
     pt=[i.pt for i in kp]
     pt=np.array(pt)
     loc=np.zeros((pt.shape[0],4))
@@ -198,25 +202,27 @@ def load_img(file_name1,file_name2,label,ext_h=820,ext_w=890):
             contours_map[pos[0]:pos[2],pos[1]:pos[3]]=temp_img[pos[0]:pos[2],pos[1]:pos[3]]
     contours_map1=contours_map.astype(np.uint8)
     contours_map1=np.expand_dims(contours_map1,axis=2)
-    contours_map1=tf.concat([contours_map1,tf.convert_to_tensor(img1)],axis=-1)
+    contours_map1=tf.concat([contours_map1,img1],axis=-1)
 
     edge_map1=cv.Canny(img1,50,150)
-    edge_map1=np.expand_dims(edge_map1,axis=2)
-    edge_map1=tf.concat([edge_map1,tf.convert_to_tensor(img1)],axis=-1)
+    inter_img=np.squeeze(img1).copy()  # Warninig:np.squeeze为浅拷贝
+    inter_img[edge_map1==0]=0
+    edge_map1=np.expand_dims(inter_img,axis=2)
+    edge_map1=tf.concat([edge_map1,img1],axis=-1)
 
     inverse_map1=cv.bitwise_not(img1)
     inverse_map1=np.expand_dims(inverse_map1,axis=2)
-    inverse_map1=tf.concat([inverse_map1,tf.convert_to_tensor(img1)],axis=-1)
+    inverse_map1=tf.concat([inverse_map1,img1],axis=-1)
 
     img2 = tf.io.read_file(file_name2, 'rb')  # 读取图片
     img2 = tf.image.decode_png(img2, channels=3)
     img2 = tf.image.rgb_to_grayscale(img2)
-    #img2=preprocess(img2,ext_h,ext_w)
-    img2=hafemann_preprocess(img2,ext_h,ext_w)
+    # img2=preprocess(img2,ext_h,ext_w)
+    img2=hafemann_preprocess(img2.numpy(),ext_h,ext_w)
     img2=np.expand_dims(img2,axis=2)
 
     kp, des = surf.detectAndCompute(img2,None)
-    temp_img=np.squeeze(img2)
+    temp_img=np.squeeze(img2).copy()
     pt=[i.pt for i in kp]
     pt=np.array(pt)
     loc=np.zeros((pt.shape[0],4))
@@ -241,12 +247,14 @@ def load_img(file_name1,file_name2,label,ext_h=820,ext_w=890):
     contours_map2=tf.concat([contours_map2,tf.convert_to_tensor(img2)],axis=-1)
 
     edge_map2=cv.Canny(img2,50,150)
-    edge_map2=np.expand_dims(edge_map2,axis=2)
-    edge_map2=tf.concat([edge_map2,tf.convert_to_tensor(img2)],axis=-1)
+    inter_img=np.squeeze(img2).copy()  # Warninig:np.squeeze为浅拷贝
+    inter_img[edge_map2==0]=0
+    edge_map2=np.expand_dims(inter_img,axis=2)
+    edge_map2=tf.concat([edge_map2,img2],axis=-1)
 
     inverse_map2=cv.bitwise_not(img2)
     inverse_map2=np.expand_dims(inverse_map2,axis=2)
-    inverse_map2=tf.concat([inverse_map2,tf.convert_to_tensor(img2)],axis=-1)
+    inverse_map2=tf.concat([inverse_map2,img2],axis=-1)
 
     return contours_map1,edge_map1,inverse_map1,contours_map2,edge_map2,inverse_map2,label
 
@@ -290,6 +298,7 @@ def test(data,model):
     plt.ylim([0.0, 1.05])
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
+
     plt.title('ROC on training set')
     plt.legend(loc="lower right")
     plt.show()
@@ -305,64 +314,64 @@ if __name__=='__main__':
     train_ind=train_ind[np.random.permutation(train_ind.shape[0]),:]
 
 
-    # dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1], train_ind[:, 2].astype(np.int8)))
-    #
-    #
-    # image = dataset.map(
-    #     lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
-    # start=time.time()
-    # doc=Mnet.train(image)
-    # end=time.time()
-    #
-    # with open('../../pair_ind/cedar_ind/test_index.pkl', 'rb') as test_index_file:
-    #     test_ind = pickle.load(test_index_file)
-    # test_ind = np.array(test_ind)
-    # test_set= tf.data.Dataset.from_tensor_slices((test_ind[:, 0], test_ind[:, 1], test_ind[:, 2].astype(np.int8)))
-    # test_image = test_set.map(
-    #     lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
-    #
-    # start=time.time()
-    # result=[]
-    # label=[]
-    # cost=[]
-    # for b in test_image.batch(32):
-    #     result.append(Mnet.Mnet.predict_on_batch(b))
-    #     label.append(b[6].numpy())
-    # end=time.time()
-    # print("time cost : %f"%(end-start))
-    #
-    # temp=np.zeros((1,2))
-    # for i in result:
-    #     temp=np.vstack([temp,i]) # 由于batch为32时不能整除，返回result的shape不都是32不能直接化为ndarray
-    # temp=temp[1:,:]
-    # result=temp.copy()
-    # temp=np.array([])
-    # for i in label:
-    #     temp=np.concatenate([temp,i])
-    # label=temp.copy()
-    #
-    # fpr, tpr, thresholds = roc_curve(label,result[:,1], pos_label=1)
-    # fnr = 1 -tpr
-    # EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
-    # eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
-    # pred_label=result[:,1].copy()
-    # pred_label[pred_label>eer_threshold]=1
-    # pred_label[pred_label<=eer_threshold]=0
-    # acc=(pred_label==label).sum()/label.size
-    #
-    # area = auc(fpr, tpr)
-    # plt.figure()
-    # lw = 2
-    # plt.plot(fpr, tpr, color='darkorange',
-    #          lw=lw, label='ROC curve (area = %0.5f)' % area)
-    # plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    # plt.xlim([0.0, 1.0])
-    # plt.ylim([0.0, 1.05])
-    # plt.xlabel('False Positive Rate')
-    # plt.ylabel('True Positive Rate')
-    # plt.title('ROC on training set')
-    # plt.legend(loc="lower right")
-    # plt.show()
+    dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1], train_ind[:, 2].astype(np.int8)))
+
+
+    image = dataset.map(
+        lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
+    start=time.time()
+    doc=Mnet.train(image)
+    end=time.time()
+
+    with open('../../pair_ind/cedar_ind/test_index.pkl', 'rb') as test_index_file:
+        test_ind = pickle.load(test_index_file)
+    test_ind = np.array(test_ind)
+    test_set= tf.data.Dataset.from_tensor_slices((test_ind[:, 0], test_ind[:, 1], test_ind[:, 2].astype(np.int8)))
+    test_image = test_set.map(
+        lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.uint8,tf.int8]))
+
+    start=time.time()
+    result=[]
+    label=[]
+    cost=[]
+    for b in test_image.batch(32):
+        result.append(Mnet.Mnet.predict_on_batch(b))
+        label.append(b[6].numpy())
+    end=time.time()
+    print("time cost : %f"%(end-start))
+
+    temp=np.zeros((1,2))
+    for i in result:
+        temp=np.vstack([temp,i]) # 由于batch为32时不能整除，返回result的shape不都是32不能直接化为ndarray
+    temp=temp[1:,:]
+    result=temp.copy()
+    temp=np.array([])
+    for i in label:
+        temp=np.concatenate([temp,i])
+    label=temp.copy()
+
+    fpr, tpr, thresholds = roc_curve(label,result[:,1], pos_label=1)
+    fnr = 1 -tpr
+    EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
+    eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
+    pred_label=result[:,1].copy()
+    pred_label[pred_label>eer_threshold]=1
+    pred_label[pred_label<=eer_threshold]=0
+    acc=(pred_label==label).sum()/label.size
+
+    area = auc(fpr, tpr)
+    plt.figure()
+    lw = 2
+    plt.plot(fpr, tpr, color='darkorange',
+             lw=lw, label='ROC curve (area = %0.5f)' % area)
+    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC on training set')
+    plt.legend(loc="lower right")
+    plt.show()
 
 
 

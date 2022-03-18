@@ -2,13 +2,13 @@ from keras.layers import Conv2D,MaxPool2D,Dense,Input,BatchNormalization,Lambda,
 from keras.models import Sequential,Model
 from keras.losses import categorical_crossentropy,binary_crossentropy
 import keras.backend as K
-from tensorflow.python.keras.optimizer_v1 import SGD
+from tensorflow.keras.optimizers import SGD
 import pickle
 import numpy as np
 import tensorflow as tf
 from keras.utils.vis_utils import plot_model
 import re
-from auxiliary.preprocessing import preprocess
+from auxiliary.preprocessing import preprocess,hafemann_preprocess
 import keras.utils.np_utils
 import os
 import sklearn.svm
@@ -20,16 +20,16 @@ import matplotlib.pyplot as plt
 
 class SigNet_F():
     def __init__(self):
-        self.rows=155
+        self.rows=150
         self.cols=220
         self.channles=1
         self.imgshape = (self.rows, self.cols, self.channles)
-        self.user_dim=20
+        self.user_dim=50
 
         self.batchsize=32
-        self.epochs=10
+        self.epochs=6
 
-        self.optimizer=SGD(learning_rate=1e-3,momentum=0.9,nesterov=True,decay=5e-4)
+        self.optimizer=SGD(lr=1e-3,momentum=0.9,nesterov=True,decay=5e-4)
 
         self.backbone=self.base_line()
         sig=Input(shape=self.imgshape)
@@ -131,9 +131,9 @@ def img_preprocess(file_name1,m_lab,f_lab,mod='train',ext_h=820,ext_w=890):
     img1 = tf.io.read_file(file_name1, 'rb')  # 读取图片
     img1 = tf.image.decode_png(img1, channels=3)
     img1 = tf.image.rgb_to_grayscale(img1)
-    img1=preprocess(img1,ext_h,ext_w)
+    img1=hafemann_preprocess(img1,ext_h,ext_w)
     if mod=='train':
-        m_lab= keras.utils.np_utils.to_categorical(m_lab,20)
+        m_lab= keras.utils.np_utils.to_categorical(m_lab,50)
     elif mod=='test':
         m_lab=m_lab
     else:
@@ -170,6 +170,8 @@ if __name__=="__main__":
         user_order.append(int(re.search('(?<=_)\d+(?=_)',train_ind[i][0]).group())) # 提取测试图片的用户编号
     user_order=np.unique(user_order)
     train_ind=path_extra(user_order)
+    train_ind=train_ind[np.random.permutation(train_ind.shape[0]),:]
+
     dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1].astype(np.int8),train_ind[:, 2].astype(np.int8)))
     image=dataset.map(lambda x, y, z: tf.py_function(func=img_preprocess, inp=[x, y, z], Tout=[tf.uint8, tf.int8, tf.int8]))
     doc=net.train(image,'signet_f.h5')
@@ -231,7 +233,7 @@ if __name__=="__main__":
     fnr = 1 -tpr
     EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
     eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
-    pred_label=result[:,1].copy()
+    pred_label=result[:,0].copy()
     pred_label[pred_label>eer_threshold]=1
     pred_label[pred_label<=eer_threshold]=0
     acc=(pred_label==result[:,1]).sum()/result.shape[0]
