@@ -147,15 +147,15 @@ class Attention(nn.Module):
         spatial_encoded=torch.mul(V_map_aux,alpha)
 
         # channel wise attention
-        V_map_aux=spatial_encoded.view(aux.shape[0],aux.shape[1],aux.shape[2],aux.shape[3])
-        V_map_aux=V_map_aux.view(aux.shape[0],aux.shape[1],aux.shape[2]*aux.shape[3],1).mean(dim=2)
-        V_map_bench=bench.view(bench.shape[0],bench.shape[1],bench.shape[2]*bench.shape[3],1).mean(dim=2)
-        ch_att=nn.Tanh()((torch.matmul(V_map_aux,self.Wc)+self.bc)+(torch.matmul(V_map_bench,self.Whc)))
+        V_map_bench=spatial_encoded.view(bench.shape[0],bench.shape[1],bench.shape[2],bench.shape[3])
+        V_map_bench=V_map_bench.view(bench.shape[0],bench.shape[1],bench.shape[2]*bench.shape[3],1).mean(dim=2)
+        V_map_aux=aux.view(aux.shape[0],aux.shape[1],aux.shape[2]*aux.shape[3],1).mean(dim=2)
+        ch_att=nn.Tanh()((torch.matmul(V_map_bench,self.Wc)+self.bc)+(torch.matmul(V_map_aux,self.Whc)))
         beta=nn.Softmax(dim=0)(torch.matmul(ch_att,self.Wi_)+self.bi_)
         beta=beta.view(beta.shape[0],beta.shape[1],1)
         channel_encoded=torch.mul(beta,spatial_encoded)
 
-        channel_encoded=channel_encoded.view(aux.shape[0],aux.shape[1],aux.shape[2],aux.shape[3])
+        channel_encoded=channel_encoded.view(bench.shape[0],bench.shape[1],bench.shape[2],bench.shape[3])
 
         return channel_encoded
 
@@ -207,15 +207,16 @@ class FeatureNet(nn.Module):
         self.inverse_incep=IncepModule(32,64,(48,64),(48,64,64),32)
 
 
-        # self.att1=Attention(32,32)
-        # self.att2=Attention(32,32)
+        self.att1=Attention(32,32)
+        self.att2=Attention(32,32)
 
     def forward(self,contour_map,edge_map,inverse_map):
         contour_feature=self.contours_feature[:6](contour_map)
         contour_feature=self.contours_incep(contour_feature)
-        edge_feature=self.edge_feature[:6](edge_map)
 
+        edge_feature=self.edge_feature[:6](edge_map)
         edge_feature=self.edge_incep(edge_feature)
+
         inverse_feature=self.inverse_feature[:6](inverse_map)
         inverse_feature=self.inverse_incep(inverse_feature)
 
@@ -224,8 +225,8 @@ class FeatureNet(nn.Module):
         edge_feature=self.edge_feature[6:9](edge_feature)
         inverse_feature=self.inverse_feature[6:9](inverse_feature)
 
-        # contour_feature=self.att1(edge_feature,contour_feature)
-        # inverse_feature=self.att2(edge_feature,inverse_feature)
+        contour_feature=self.att1(edge_feature,contour_feature)
+        inverse_feature=self.att2(edge_feature,inverse_feature)
 
         contour_feature=self.contours_feature[9:](contour_feature)
         edge_feature=self.edge_feature[9:](edge_feature)
@@ -310,19 +311,21 @@ def resize(img, ext_h,ext_w,dst_h=155,dst_w=220):
     img=cv2.resize(img,(dst_w,dst_h))
     #img=otsu(img.numpy())
     img=img.astype(np.uint8)
+    img=img.astype(np.uint8)
     return img
 
 def hand_crafted(img,*args):
-    surf=cv2.xfeatures2d.SURF_create(200)
+    surf=cv2.xfeatures2d.SURF_create(400)
     kp, des = surf.detectAndCompute(img,None)
     temp_img=np.squeeze(img)
     pt=[i.pt for i in kp]
     pt=np.array(pt)
     loc=np.zeros((pt.shape[0],4))
-    loc[:,0]=pt[:,1]-2
-    loc[:,1]=pt[:,0]-2
-    loc[:,2]=pt[:,1]+2
-    loc[:,3]=pt[:,0]+2 # 囊括特征点周围3*3的领域,用检测出的size的话太大了
+    if pt.shape[0]!=0:
+        loc[:,0]=pt[:,1]-2
+        loc[:,1]=pt[:,0]-2
+        loc[:,2]=pt[:,1]+2
+        loc[:,3]=pt[:,0]+2 # 囊括特征点周围3*3的领域,用检测出的size的话太大了
     loc=loc.astype(int)
     contours_map=np.zeros(temp_img.shape)
     if len(kp)>20:
@@ -341,7 +344,9 @@ def hand_crafted(img,*args):
         contours_map=np.concatenate([contours_map,np.expand_dims(img,axis=0)],axis=0)
 
     edge_map=cv2.Canny(img,50,150)
-    edge_map=np.expand_dims(edge_map,axis=0)
+    inter_img=np.squeeze(img).copy()
+    inter_img[edge_map==0]=0
+    edge_map=np.expand_dims(inter_img,axis=0)
     if args:
         edge_map=np.concatenate([edge_map,np.expand_dims(args[0],axis=0)],axis=0)
     else:
@@ -467,6 +472,36 @@ def curve_eval(label,result):
     plt.show()
 
 
+def draw_fig(pred,label):
+    fpr, tpr, thresholds = roc_curve(label,pred, pos_label=1)
+    fnr = 1 -tpr
+    EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
+    eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
+    pred_label=pred.copy()
+    pred_label[pred_label>eer_threshold]=1
+    pred_label[pred_label<=eer_threshold]=0
+    acc=(pred_label==label).sum()/label.size
+    pred_label=pred.copy()
+    pred_label[pred_label>0.5]=1
+    pred_label[pred_label<=0.5]=0
+    acc_half=(pred_label==label).sum()/label.size
+
+    area = auc(fpr, tpr)
+    plt.figure()
+    lw = 2
+    plt.plot(fpr, tpr, color='darkorange',
+             lw=lw, label='ROC curve (area = %0.5f)' % area)
+    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC on testing set')
+    plt.legend(loc="lower right")
+    plt.show()
+
+    return area,EER,acc,acc_half
+
 if __name__=='__main__':
 
     BATCH_SIZE = 28
@@ -474,7 +509,7 @@ if __name__=='__main__':
     LEARNING_RATE = 0.0003
 
     np.random.seed(0)
-    torch.manual_seed(3)
+    torch.manual_seed(2)
 
     cuda = torch.cuda.is_available()
     if cuda:
@@ -498,7 +533,7 @@ if __name__=='__main__':
     if cuda:
         model=model.cuda()
     criterion=loss()
-    optimizer=optim.Adam(model.parameters(),lr=LEARNING_RATE,betas=(0.5,0.999))
+    optimizer=optim.Adam(model.parameters(),lr=LEARNING_RATE)
 
     writer=SummaryWriter(log_dir='../../NetWeights/Mnet_v2')
 
@@ -576,13 +611,31 @@ if __name__=='__main__':
 
             iter_time += 1
 
-            # if i == 500:
-            #     torch.save(model.state_dict(), 'Mnet.pth')
+            if iter_time == 500:
+                torch.save(model.state_dict(), 'Mnet.pth')
+                break
 
 
     writer.close()
 
+    result=[]
+    label=[]
+    with torch.no_grad():
+        it=iter(test_loader)
+        for i in range(len(test_loader)):
+            inputs,labels=next(it)
+            #torch.cuda.empty_cache()  # 释放GPU显存，不确定有没有用，聊胜于无吧
 
+            if cuda:
+                inputs,labels=inputs.cuda(),labels.cuda()
+            pred=model(inputs)
+            result.append(pred.cpu().numpy())
+            label.append(labels.cpu())
 
-
+    result=np.vstack(result)
+    result=torch.nn.functional.softmax(torch.Tensor(result),dim=1)
+    result=result.numpy()
+    label=torch.hstack(label)
+    label=label.numpy()
+    draw_fig(result[:,1],label)
 
