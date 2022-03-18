@@ -13,20 +13,23 @@ def GLCM(gray):
 
     # get a gray level co-occurrence matrix (GLCM)
     # parameters：the matrix of gray image，distance，direction，gray level，symmetric or not，standarzation or not
-    glcm = greycomatrix(gray, [1, 2, 4, 8],[0, np.pi / 4, np.pi / 2, np.pi * 3 / 4],
+    glcm = greycomatrix(gray, [1],[0, np.pi / 4, np.pi / 2, np.pi * 3 / 4],
                         256, symmetric = True, normed = True)
 
     print(glcm.shape); print("===============================\n")
 
     #获取共生矩阵的统计值.
+    feature=[]
     for prop in {'contrast', 'dissimilarity','homogeneity', 'energy', 'correlation', 'ASM'}:
         # 对比度，相异性，反方差矩阵，能量，相关系数，角二阶矩
         temp = greycoprops(glcm, prop)
+        feature.append(temp)
 
         print(prop, temp)
         # print(prop + "_mean: ", np.mean(temp))
         # print(prop + "_std:", np.std(temp, ddof = 1));
         print( "==============================\n")
+    return feature
 
 
 def getGrayLevelRumatrix( array, theta):
@@ -67,4 +70,5 @@ org_path = r'E:\material\signature\signatures\full_org\original_%d_%d.png'
 test_arr=np.array([[0,0,1,1],[0,0,1,1],[0,2,2,2],[2,2,3,3],[1,2,3,2]])
 test_img=cv2.imread(org_path%(1,1),0)
 test_img=hafemann_preprocess(test_img,820,890)
-features_mean, features_range, labels_mean, labels_range=pf.glcm_features(test_img,False)
+features_mean, features_range, labels_mean, labels_range=pf.glcm_features(test_img,True)  # feature_range为统计量max-min的值
+glrlm_feature,labels=pf.glrlm_features(test_img,None)
