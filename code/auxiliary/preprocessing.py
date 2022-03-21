@@ -8,28 +8,12 @@ import matplotlib.pyplot as plt
 from scipy import ndimage
 
 
-def train_preprocess():
-    org_path = r'E:\material\signature\signatures\full_org\original_%d_%d.png'
-    forg_path = r'E:\material\signature\signatures\full_forg\forgeries_%d_%d.png'
-    org_author = 55
-    org_num = 24
-    sig_ind=[]
-
-    for i in range(1,org_author+1):
-        for j in range(1,org_num+1):
-            sig_ind.append(org_path%(i,j))
-
-    for i in range(1,org_author+1):
-        for j in range(1,org_num+1):
-            sig_ind.append(forg_path%(i,j))
-    data=tf.data.Dataset.from_tensor_slices(sig_ind)
-    img_data=data.map(lambda x:tf.py_function(func=load_image, inp=[x], Tout=[tf.uint8]))
-    img_shape=[]
-    for i in img_data:
-        img_shape.append(i[0].shape)
-    img_shape=np.array(img_shape)
-    ext_h,ext_w,_=img_shape.max(axis=0)
-    img_data=img_data.map(lambda x: tf.py_function(func=preprocess,inp=[x,ext_h,ext_w],Tout=[tf.uint8]))
+'''
+2022.03.19
+1. 目前可以确保此处的预处理方法是完全正确的，和hafemann提出的方法一致，唯一有待争议的地方是是否需要进行标准化
+在代码中并没有找到相关部分。
+2. hafemann的预处理方法看来效果并不好，因为他先将图片复制到了一个较大的模板上，又从
+'''
 
 
 def load_image(file_name):
@@ -55,7 +39,7 @@ def centered(img,ext_h,ext_w):
     radius=2
     blurred_img=ndimage.gaussian_filter(img,radius)
     # 求取质心
-    threshold,binarized_img=cv2.threshold(blurred_img,0,255,cv2.THRESH_TOZERO_INV+cv2.THRESH_OTSU)
+    threshold,binarized_img=cv2.threshold(blurred_img,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
     r,c=np.where(binarized_img==0) # 有笔画的位置
     r_center = int(r.mean() - r.min())
     c_center = int(c.mean() - c.min())
@@ -105,11 +89,11 @@ def resize_img(img,new_size):
     w_scale=float(img.shape[1])/dst_w
     if w_scale>h_scale:
         resized_height=dst_h
-        resized_width=int(round(img.shape[1])/h_scale)
+        resized_width=int(round(img.shape[1]/h_scale))
     else:
         resized_width=dst_w
-        resized_height=int(round(img.shape[0])/w_scale)
-    img=cv2.resize(img,(resized_height,resized_width))
+        resized_height=int(round(img.shape[0]/w_scale))
+    img=cv2.resize(img.astype(np.float32),(resized_width,resized_height))
     if w_scale>h_scale:
         start = int(round((resized_width-dst_w)/2.0))
         return img[:, start:start+dst_w]
@@ -150,25 +134,6 @@ def preprocess(img, ext_h, ext_w,dst_h=150,dst_w=220):
 
 
 
-def otsu(gray_img):
-    h = gray_img.shape[0]
-    w = gray_img.shape[1]
-    threshold_t = 0
-    max_g = 0
-    for t in range(255):
-        n0 = gray_img[np.where(gray_img < t)]
-        n1 = gray_img[np.where(gray_img>=t)]
-        w0 = len(n0)/(h*w)
-        w1 = len(n1)/(h*w)
-        u0 = np.mean(n0) if len(n0)>0 else 0
-        u1 = np.mean(n1) if len(n1)>0 else 0
-        g = w0*w1*(u0-u1)**2
-        if g > max_g :
-            max_g = g
-            threshold_t = t
-    print(threshold_t)
-    gray_img[gray_img>threshold_t] = 255
-    return gray_img
 
 def img_var(img_data):
     # 提取所有先前处理好的图片后计算方差，很慢，特别慢，怀疑是阈值化那一步里使用自制大津法的效率过低
@@ -179,21 +144,33 @@ def img_var(img_data):
 
 
 if __name__=="__main__":
-    with open('../../pair_ind/cedar_ind/train_index.pkl', 'rb') as train_index_file:
-        train_ind = pickle.load(train_index_file)
-    train_ind = np.array(train_ind)
-    img1 = tf.io.read_file(train_ind[0,0], 'rb')  # 读取图片
-    img1 = tf.image.decode_png(img1, channels=3)
-    img1 = tf.image.rgb_to_grayscale(img1)
-    after1=hafemann_preprocess(img1,820,890)
-    after2=preprocess(img1,820,890)
-    temp1=after1.copy()
-    temp2=after2.numpy()
-    temp2=np.squeeze(temp2)
-    plt.figure()
-    plt.subplot(131)
-    plt.imshow(np.squeeze(img1.numpy()),cmap='gray')
-    plt.subplot(132)
-    plt.imshow(temp1,cmap='gray')
-    plt.subplot(133)
-    plt.imshow(temp2,cmap='gray')
+    path=r'E:\\temp\\some_signature.png'
+    img1 = cv2.imread(path, 0)  # 读取图片
+    img1=np.squeeze(img1)
+    normalized = 255 - centered(img1, 952, 1360)
+    resized = resize_img(normalized, (170, 242))
+    cropped = crop_center(resized, (150,220))
+
+    f, ax = plt.subplots(4,1, figsize=(6,15))
+    ax[0].imshow(img1, cmap='Greys_r')
+    ax[1].imshow(normalized)
+    ax[2].imshow(resized)
+    ax[3].imshow(cropped)
+
+    ax[0].set_title('Original')
+    ax[1].set_title('Background removed/centered')
+    ax[2].set_title('Resized')
+    ax[3].set_title('Cropped center of the image')
+
+    # after1=hafemann_preprocess(img1,730,1042)
+    # after2=preprocess(img1,730,1042)
+    # temp1=after1.copy()
+    # temp2=after2.copy()
+    # temp2=np.squeeze(temp2)
+    # plt.figure()
+    # plt.subplot(131)
+    # plt.imshow(np.squeeze(img1.numpy()),cmap='gray')
+    # plt.subplot(132)
+    # plt.imshow(temp1,cmap='gray')
+    # plt.subplot(133)
+    # plt.imshow(temp2,cmap='gray')
