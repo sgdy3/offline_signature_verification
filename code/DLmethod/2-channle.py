@@ -19,9 +19,6 @@
 """
 
 
-
-
-import time
 import keras.utils.np_utils
 from keras.layers import Conv2D,MaxPool2D,BatchNormalization,Dense,GlobalAveragePooling2D,Subtract,Softmax,AvgPool2D
 from keras.models import Sequential,Model
@@ -225,16 +222,14 @@ if __name__=='__main__':
             plt.xlabel('times')
             plt.ylabel('categorical_crossentropy')
 
-        start=time.time()
+        '''
+        给出训练集上所有图片的输出，并进行合并
+        '''
         result=[]
         label=[]
-        cost=[]
-        for b in image.batch(40):
+        for b in image.batch(32):
             result.append(TC2L.net.predict_on_batch(b))
             label.append(b[1].numpy())
-        end=time.time()
-        print("time cost : %f"%(end-start))
-        result=np.array(result)
 
         temp=np.zeros((1,2))
         for i in result:
@@ -257,8 +252,7 @@ if __name__=='__main__':
 
         result=[]
         label=[]
-
-        for b in test_image.batch(40):
+        for b in test_image.batch(32):
             result.append(TC2L.net.predict_on_batch(b))
             label.append(b[1].numpy())
         temp=np.zeros((1,2))
