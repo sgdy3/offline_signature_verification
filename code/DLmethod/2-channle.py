@@ -103,7 +103,7 @@ class TwoC2L():
         return  Model(img,feature,name='subnet')
 
 
-    def train(self,dataset,weights=''):
+    def train(self,dataset,weights='',save=False):
         save_dir = '../../NetWeights/2C2L_weights'
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
@@ -129,7 +129,8 @@ class TwoC2L():
                     print("enough rounds!!")
                     break
                 i+=1
-            self.net.save_weights(filepath)
+            if save:
+                self.net.save_weights(filepath)
             return doc
 
 def load_img(file_name1,file_name2,label,ext_h=820,ext_w=890):
