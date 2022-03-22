@@ -2,10 +2,10 @@ import pandas as pd
 from keras.layers import  Conv2D,BatchNormalization,Dense,Input,MaxPool2D,Activation,Flatten
 from keras.models import Sequential,Model
 import numpy as np
-from tensorflow.keras.optimizers import SGD
+from keras.optimizer_v2.gradient_descent import SGD
 import os
 import tensorflow as tf
-from auxiliary.preprocessing import preprocess,hafemann_preprocess
+from auxiliary.preprocessing import hafemann_preprocess
 import keras.utils.np_utils
 import re
 import pickle
@@ -26,9 +26,9 @@ class signet():
 
         self.batchsize=32
         self.epochs=6
-        self.optimizer=SGD(lr=1e-3,momentum=0.9,nesterov=True,decay=5e-4)
+        self.optimizer=SGD(learning_rate=1e-3,momentum=0.9,nesterov=True,decay=5e-4)
 
-        self.backbone=self.base_line()
+        self.backbone=self.backbone_thin()
         input=Input(shape=self.imgshape)
         x=self.backbone(input)
         output=Dense(self.user_dim,activation='softmax')(x)
@@ -36,34 +36,33 @@ class signet():
         self.signet.compile(optimizer=self.optimizer,loss='categorical_crossentropy',metrics='accuracy')
         self.signet.summary()
 
-
-    def base_line(self):
+    def backbone_thin(self):
         model=Sequential()
 
-        model.add(Conv2D(64,kernel_size=5,strides=5,input_shape=self.imgshape))
+        model.add(Conv2D(64,kernel_size=5,strides=5,input_shape=self.imgshape,use_bias=False))
         model.add(BatchNormalization())
         model.add(Activation('relu'))
 
         model.add(MaxPool2D(pool_size=3,strides=2))
 
-        model.add(Conv2D(96,kernel_size=5,strides=2,padding='same'))
+        model.add(Conv2D(96,kernel_size=5,strides=2,padding='same',use_bias=False))
         model.add(BatchNormalization())
         model.add(Activation('relu'))
 
         model.add(MaxPool2D(pool_size=3,strides=2))
 
-        model.add(Conv2D(128,kernel_size=3,strides=1,padding='same'))
+        model.add(Conv2D(128,kernel_size=3,strides=1,padding='same',use_bias=False))
         model.add(BatchNormalization())
         model.add(Activation('relu'))
 
-        model.add(Conv2D(128,kernel_size=3,strides=1,padding='same'))
+        model.add(Conv2D(128,kernel_size=3,strides=1,padding='same',use_bias=False))
         model.add(BatchNormalization())
         model.add(Activation('relu'))
 
         model.add(MaxPool2D(pool_size=3,strides=2))
 
         model.add(Flatten())
-        model.add(Dense(256))
+        model.add(Dense(256,use_bias=False))
         model.add(BatchNormalization())
         model.add(Activation('relu'))
 
@@ -73,7 +72,51 @@ class signet():
 
         return Model(input,output)
 
-    def train(self,data,weights=''):
+    def backbone_std(self):
+        model=Sequential()
+
+        model.add(Conv2D(96,kernel_size=11,strides=4,input_shape=self.imgshape,use_bias=False))
+        model.add(BatchNormalization())
+        model.add(Activation('relu'))
+
+        model.add(MaxPool2D(pool_size=3,strides=2))
+
+        model.add(Conv2D(256,kernel_size=5,strides=2,padding='same',use_bias=False))
+        model.add(BatchNormalization())
+        model.add(Activation('relu'))
+
+        model.add(MaxPool2D(pool_size=3,strides=2))
+
+        model.add(Conv2D(384,kernel_size=3,strides=1,padding='same',use_bias=False))
+        model.add(BatchNormalization())
+        model.add(Activation('relu'))
+
+        model.add(Conv2D(384,kernel_size=3,strides=1,padding='same',use_bias=False))
+        model.add(BatchNormalization())
+        model.add(Activation('relu'))
+
+        model.add(Conv2D(256,kernel_size=3,strides=1,padding='same',use_bias=False))
+        model.add(BatchNormalization())
+        model.add(Activation('relu'))
+
+        model.add(MaxPool2D(pool_size=3,strides=2))
+
+        model.add(Flatten())
+        model.add(Dense(2048,use_bias=False))
+        model.add(BatchNormalization())
+        model.add(Activation('relu'))
+
+        model.add(Dense(2048,use_bias=False))
+        model.add(BatchNormalization())
+        model.add(Activation('relu'))
+
+        model.summary()
+        input=Input(shape=self.imgshape)
+        output=model(input)
+
+        return Model(input,output)
+
+    def train(self,data,weights='',save=False):
         save_dir = '../../NetWeights/Signet_weights'
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
@@ -86,16 +129,23 @@ class signet():
             train_img=data.shuffle(100).batch(self.batchsize).repeat(self.epochs)
             time=0
             doc=[]
-            for batch in train_img:
-                train_label=keras.utils.np_utils.to_categorical(batch[1],num_classes=self.user_dim)
-                loss=self.signet.train_on_batch(x=batch[0],y=train_label)
-                doc.append(loss)
-                print("round %d=> loss:%f, acc:%f%% " % (time,loss[0],loss[1]*100))
-                time+=1
-            self.signet.save_weights(filepath)
+            for i in range(1,self.epochs):
+                for batch in train_img:
+                    train_label=keras.utils.np_utils.to_categorical(batch[1],num_classes=self.user_dim)
+                    loss=self.signet.train_on_batch(x=batch[0],y=train_label)
+                    doc.append(loss)
+                    print("round %d=> loss:%f, acc:%f%% " % (time,loss[0],loss[1]*100))
+                    time+=1
+                # 总共进行三次学习率下降，每次下降10%
+                if i%(self.epochs//3)==0:
+                    self.optimizer.lr-=0.1*self.optimizer.lr
+            if save:
+                self.signet.save_weights(filepath)
         return doc
 
+
 def img_preprocess(file_name1,m_lab,f_lab,mod='train',ext_h=820,ext_w=890):
+    # 对图像进行预处理，同时完成标签构造
     img1 = tf.io.read_file(file_name1, 'rb')  # 读取图片
     img1 = tf.image.decode_png(img1, channels=3)
     img1 = tf.image.rgb_to_grayscale(img1)
@@ -107,6 +157,7 @@ def img_preprocess(file_name1,m_lab,f_lab,mod='train',ext_h=820,ext_w=890):
     else:
         raise Exception("mod doesn't exist")
     return img1,m_lab,f_lab
+
 
 def path_extra(user_ord):
     org_path = r'E:\material\signature\signatures\full_org\original_%d_%d.png'
@@ -122,34 +173,46 @@ def path_extra(user_ord):
             file_path.append(negative)
     return np.array(file_path)
 
-def temp_process(img, ext_h, ext_w,dst_h=155,dst_w=220):
-    img=np.expand_dims(img,axis=-1)
-    h,w,_=img.shape
-    scale=min(ext_h / h, ext_w / w)
-    nh=int(scale*h)
-    nw=int(scale*w)
-    img=tf.image.resize(img,[nh,nw])
-    pad_row1=int((ext_h - img.shape[0]) / 2)
-    pad_row2= (ext_h - img.shape[0]) - pad_row1
-    pad_col1=int((ext_w - img.shape[1]) / 2)
-    pad_col2= (ext_w - img.shape[1]) - pad_col1
-    img=tf.pad(img,[[pad_row1,pad_row2],[pad_col1,pad_col2],[0,0]],constant_values=255)
-    img=tf.image.resize(img,[dst_h,dst_w])
-    #img=otsu(img.numpy())
-    img=tf.convert_to_tensor(img)
-    return img
-
+def curve_eval(label,result):
+    fpr, tpr, thresholds = roc_curve(label,result, pos_label=1)
+    fnr = 1 -tpr
+    EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
+    eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
+    pred_label=result.copy()
+    pred_label[pred_label>eer_threshold]=1
+    pred_label[pred_label<=eer_threshold]=0
+    pred_label=1-pred_label
+    acc=(pred_label==label).sum()/label.size
+    area = auc(fpr, tpr)
+    print("EER:%f"%EER)
+    print('AUC:%f'%area)
+    print('ACC(EER_threshold):%f'%acc)
+    plt.figure()
+    lw = 2
+    plt.plot(fpr, tpr, color='darkorange',
+             lw=lw, label='ROC curve (area = %0.2f)' % area)
+    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC on testing set')
+    plt.legend(loc="lower right")
+    plt.show()
 
 if __name__=="__main__":
+    # 50个用户进行训练
     net=signet(num_class=50)
     # 用户无关训练阶段
     with open('../../pair_ind/cedar_ind/train_index.pkl', 'rb') as train_index_file:
         train_ind = pickle.load(train_index_file)
     train_ind = np.array(train_ind)
 
-    # 为了保证对比合理，SigNet和其他方式使用相同的用户训练
-    # 但由于其他方案是pair输入，为了使得正负样本对数目相当，没有使用所用的负样本
-    # 所以先提取出用户再使用其所有的样本
+    '''
+    为了保证对比合理，SigNet和其他方式使用相同的用户训练
+    但由于其他方案是pair输入，为了使得正负样本对数目相当，没有使用所有的负样本
+    所以先提取出用户再使用其所有的样本
+    '''
     user_order=[]
     for i in range(train_ind.shape[0]):
         user_order.append(int(re.search('(?<=_)\d+(?=_)',train_ind[i][0]).group())) # 提取测试图片的用户编号
@@ -159,9 +222,11 @@ if __name__=="__main__":
 
     dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1].astype(np.int8),train_ind[:, 2].astype(np.int8)))
     train_image=dataset.map(lambda x, y, z: tf.py_function(func=img_preprocess, inp=[x, y, z], Tout=[tf.uint8, tf.int8, tf.int8]))
-    doc=net.train(train_image)
+    doc=net.train(train_image,'signet.h5')
 
-    # 用户相关判决阶段
+    '''
+    用户相关判决阶段，训练集用户的真实签名特征向量作为负样本
+    '''
     org_path = r'E:\material\signature\signatures\full_org\original_%d_%d.png'
     forg_path = r'E:\material\signature\signatures\full_forg\forgeries_%d_%d.png'
     train_ind=train_ind[train_ind[:,2].astype(int)==1]
@@ -172,6 +237,9 @@ if __name__=="__main__":
         neg_vecs.append(net.backbone.predict_on_batch(batch[0])) # 获得训练集中用户真实签名的特征向量
     neg_vecs=np.vstack(neg_vecs)
 
+    '''
+   获取测试集所有用户的所有签名特征向量
+    '''
     test_ind=[]
     test_user_order=np.arange(1,56)[~np.isin(np.arange(1,56),user_order)] # 得到测试集用户
     for user in test_user_order:
@@ -191,11 +259,14 @@ if __name__=="__main__":
     test_vec=np.vstack(test_vec)
     test_label=np.hstack(test_label).T
 
+    '''
+    对于每个训练集用户，随机采样24个真实签名中的12个做正样本，加上前述负样本一起训练用户相关SVM
+    '''
     result=[]
     for user in test_user_order:
         user_ind=np.where(test_label[:,0]==user)[0] # test库中用户记录
         user_pos_ind=np.where((test_label[:,0]==user) & (test_label[:,1]==1))[0] # test库中用户真实样本记录
-        user_train_ind=np.random.choice(user_pos_ind,12,replace=False) # 随机采样24个真实签名中的12个做正样本
+        user_train_ind=np.random.choice(user_pos_ind,12,replace=False)
         user_test_ind=user_ind[~np.isin(user_ind,user_train_ind)]
 
         skew = neg_vecs.shape[0] / user_train_ind.shape[0]
@@ -207,31 +278,8 @@ if __name__=="__main__":
         svm_with_scaler.fit(svm_input,svm_label)
         hyper_dist=svm_with_scaler.decision_function(test_vec[user_test_ind,:])
         result.append(np.vstack([hyper_dist,test_label[user_test_ind,1]]))
-
     result=np.hstack(result).T
-
-    fpr, tpr, thresholds = roc_curve(result[:,1],result[:,0], pos_label=1)
-    fnr = 1 -tpr
-    EER = fpr[np.nanargmin(np.absolute((fnr - fpr)))] # We get EER when fnr=fpr
-    eer_threshold = thresholds[np.nanargmin(np.absolute((fnr - fpr)))] # judging threshold at EER
-    pred_label=result[:,0].copy()
-    pred_label[pred_label>eer_threshold]=1
-    pred_label[pred_label<=eer_threshold]=0
-    acc=(pred_label==result[:,1]).sum()/result.shape[0]
-
-    area = auc(fpr, tpr)
-    plt.figure()
-    lw = 2
-    plt.plot(fpr, tpr, color='darkorange',
-             lw=lw, label='ROC curve (area = %0.2f)' % area)
-    plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC on testing set')
-    plt.legend(loc="lower right")
-    plt.show()
+    curve_eval(result[:,1],result[:,0])
 
 
     # 画降维图
