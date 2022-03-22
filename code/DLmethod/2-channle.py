@@ -1,3 +1,26 @@
+# -*- coding: utf-8 -*-
+# ---
+# @File: texture_mat.py
+# @Author: sgdy3
+# @E-mail: sgdy03@163.com
+# @Time: 2022/3/22
+# Describe: 实现了Siamese网络进行脱机签名认证
+# ---
+
+
+"""
+更新日志：
+=============
+2022.03.22：
+------------
+1. 重看了一遍原论文，2C2L的骨架采用的是原始的inception_v2，inception_v2的实现比想象的的困难的多，需要额外花时间处理。# TODO
+2. 删除了多余的注释
+=============
+"""
+
+
+
+
 import time
 import keras.utils.np_utils
 from keras.layers import Conv2D,MaxPool2D,BatchNormalization,Dense,GlobalAveragePooling2D,Subtract,Softmax,AvgPool2D
@@ -11,7 +34,7 @@ import numpy as np
 import tensorflow as tf
 import os
 import matplotlib.pyplot as plt
-from auxiliary.preprocessing import preprocess,hafemann_preprocess
+from auxiliary.preprocessing import hafemann_preprocess
 from sklearn.metrics import roc_curve, auc
 
 
@@ -48,33 +71,26 @@ class TwoC2L():
         model=Sequential()
 
         model.add(Conv2D(32,kernel_size=(3,3),strides=1,padding='same',input_shape=(self.rows,self.cols,self.channles),name='conv1',activation='relu'))
-        #model.add(Activation('relu'))
         model.add(BatchNormalization(momentum=0.9))
 
         model.add(Conv2D(32,kernel_size=(3,3),strides=1,padding='same',input_shape=(self.rows,self.cols,self.channles),name='conv2',activation='relu'))
-        #model.add(Activation('relu'))
         model.add(BatchNormalization(momentum=0.9))
 
         model.add(MaxPool2D(pool_size=(3,3),strides=(2,2),name='pool1'))
 
         model.add(Conv2D(64, kernel_size=(5, 5), strides=1, padding='same',name='conv3',activation='relu'))
-        #model.add(Activation('relu'))
         model.add(BatchNormalization(momentum=0.9))
 
         model.add(MaxPool2D(pool_size=(3, 3), strides=2,name='pool2'))
         model.add(Dropout(0.3))
 
         model.add(Conv2D(128, kernel_size=(3, 3), strides=1, padding='same',name='conv4',activation='relu'))
-        #model.add(Activation('relu'))
 
         model.add(Conv2D(96, kernel_size=(3, 3), strides=1, padding='same',name='conv5',activation='relu'))
-        #model.add(Activation('relu'))
 
         model.add(MaxPool2D(pool_size=(3, 3), strides=2,name='pool3'))
         model.add(Dropout(0.3))
 
-        #model.add(Flatten())
-        #model.add(Dense(1024,name='fc1'))
         model.add(GlobalAveragePooling2D())
         model.add(Activation('relu'))
         model.add(Dropout(0.5))
@@ -82,7 +98,6 @@ class TwoC2L():
         model.add(Flatten())
         model.add(Dense(256,name='fc1'))
         model.add(Dense(128,name='fc2',activation='relu'))
-        #model.add(Activation('relu'))
 
         model.summary()
 
