@@ -27,7 +27,7 @@ def denoise(img):
     return img
 
 
-def resize_img(img, img_size=(170,242), K=2.2):
+def resize_img(img, img_size=(150,220), K=2.5):
     dst_h,dst_w=img_size
     moments = cv2.moments(img, True)  # 计算图像的矩，不考虑灰度的变化，二值化图像01
     xc = moments['m10'] / moments['m00']
@@ -40,7 +40,7 @@ def resize_img(img, img_size=(170,242), K=2.2):
 
 
 def crop_center(img, input_shape):
-    dst_h,dst_w = img.shape
+    dst_h,dst_w = input_shape
     h_scale=float(img.shape[0])/dst_h
     w_scale=float(img.shape[1])/dst_w
     if w_scale>h_scale:
