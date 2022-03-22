@@ -1,10 +1,29 @@
-import time
+# -*- coding: utf-8 -*-
+# ---
+# @File: texture_mat.py
+# @Author: sgdy3
+# @E-mail: sgdy03@163.com
+# @Time: 2022/3/22
+# Descibe: 实现了Siamese网络进行脱机签名认证
+# ---
+
+"""
+更新日志：
+=============
+2022.03.22：
+------------
+1. 设定网络参数和原始论文一致，但未设置lr decay.
+2. 增设论文中的网络架构设置为standard版本，原网络架构设置为thin版本
+=============
+"""
+
+
 
 import cv2 as cv
 from keras.layers import Conv2D,MaxPool2D,BatchNormalization,Dense,GlobalAveragePooling2D,Lambda
 from keras.models import Sequential,Model
 from keras.layers import Activation,Dropout,Input,Flatten
-from keras.optimizers import adam_v2
+from keras.optimizer_v2.rmsprop import RMSprop
 from keras import backend as K
 from keras.utils.vis_utils import plot_model
 import pickle
@@ -19,7 +38,7 @@ from sklearn.metrics import roc_curve, auc
 
 
 class Siamase():
-    def __init__(self):
+    def __init__(self,mod='thin'):
         self.rows=150
         self.cols=220
         self.channles=1
@@ -28,9 +47,10 @@ class Siamase():
         self.batchsize=32
         self.epochs=10
 
+        assert mod=='thin' or 'std' ,"model has only two variant: thin and std"
 
-        self.subnet=self.bulid_model()
-        self.optimizer= adam_v2.Adam(learning_rate=0.0003)
+        self.subnet=self.model_thin() if mod=='thin' else self.model_std()
+        self.optimizer= RMSprop(learning_rate=1e-4,rho=0.9,epsilon=1e-8,decay=5e-4)
 
         sig1=Input(shape=self.imgshape)
         sig2=Input(shape=self.imgshape)
@@ -49,43 +69,71 @@ class Siamase():
         plot_model(self.SigNet, to_file='siamese.png', show_shapes=True)
         self.SigNet.summary()
 
-    def bulid_model(self):
+    def model_thin(self):
         model=Sequential()
 
         model.add(Conv2D(48,kernel_size=(11,11),strides=1,padding='same',input_shape=(self.rows,self.cols,self.channles),name='conv1',activation='relu'))
-        #model.add(Activation('relu'))
         model.add(BatchNormalization(momentum=0.9))
 
         model.add(MaxPool2D(pool_size=(3,3),strides=(2,2),name='pool1'))
 
         model.add(Conv2D(64, kernel_size=(5, 5), strides=1, padding='same',name='conv2',activation='relu'))
-        #model.add(Activation('relu'))
         model.add(BatchNormalization(momentum=0.9))
 
         model.add(MaxPool2D(pool_size=(3, 3), strides=2,name='pool2'))
         model.add(Dropout(0.3))
 
         model.add(Conv2D(128, kernel_size=(3, 3), strides=1, padding='same',name='conv3',activation='relu'))
-        #model.add(Activation('relu'))
 
         model.add(Conv2D(96, kernel_size=(3, 3), strides=1, padding='same',name='conv4',activation='relu'))
-       #model.add(Activation('relu'))
+
 
         model.add(MaxPool2D(pool_size=(3, 3), strides=2,name='pool3'))
         model.add(Dropout(0.3))
 
-        #model.add(Flatten())
-        #model.add(Dense(1024,name='fc1'))
+
         model.add(GlobalAveragePooling2D())
         model.add(Activation('relu'))
         model.add(Dropout(0.5))
 
         model.add(Flatten())
         model.add(Dense(128,name='fc2',activation='relu'))
-        #model.add(Activation('relu'))
 
         model.summary()
 
+        img=Input(shape=self.imgshape)
+        feature=model(img)
+        plot_model(model,to_file='subnet.png',show_shapes=True)
+        return  Model(img,feature)
+
+    def model_std(self):
+        model=Sequential()
+
+        model.add(Conv2D(96,kernel_size=(11,11),strides=1,padding='same',input_shape=(self.rows,self.cols,self.channles),name='conv1',activation='relu'))
+        model.add(BatchNormalization(epsilon=1e-06,momentum=0.9))
+
+        model.add(MaxPool2D(pool_size=(3,3),strides=(2,2),name='pool1'))
+
+        model.add(Conv2D(256, kernel_size=(5, 5), strides=1, padding='same',name='conv2',activation='relu'))
+        model.add(BatchNormalization(epsilon=1e-06,momentum=0.9))
+
+        model.add(MaxPool2D(pool_size=(3, 3), strides=2,name='pool2'))
+        model.add(Dropout(0.3))
+
+        model.add(Conv2D(384, kernel_size=(3, 3), strides=1, padding='same',name='conv3',activation='relu'))
+
+        model.add(Conv2D(256, kernel_size=(3, 3), strides=1, padding='same',name='conv4',activation='relu'))
+
+        model.add(MaxPool2D(pool_size=(3, 3), strides=2,name='pool3'))
+        model.add(Dropout(0.3))
+
+        model.add(Flatten())
+        model.add(Dense(1024,name='fc1',activation='relu'))
+        model.add(Dropout(0.5))
+
+        model.add(Flatten())
+        model.add(Dense(128,name='fc2',activation='relu'))
+        model.summary()
         img=Input(shape=self.imgshape)
         feature=model(img)
         plot_model(model,to_file='subnet.png',show_shapes=True)
@@ -103,7 +151,7 @@ class Siamase():
         contrastive_loss=K.sum(label*alpha*K.square(dw)+(1-label)*beta*K.square(hingeloss))/self.batchsize
         return contrastive_loss
 
-    def train(self,dataset,weights=''):
+    def train(self,dataset,weights='',save=False):
         save_dir = '../../NetWeights/Siamase_weights'
         if not os.path.isdir(save_dir):
             os.makedirs(save_dir)
@@ -128,7 +176,8 @@ class Siamase():
                     print("enough rounds!!")
                     break
                 i+=1
-            self.SigNet.save_weights(filepath)
+            if save:
+                self.SigNet.save_weights(filepath)
             return doc
 
 
@@ -200,15 +249,13 @@ if __name__=='__main__':
     with open('../../pair_ind/cedar_ind/train_index.pkl', 'rb') as train_index_file:
         train_ind = pickle.load(train_index_file)
     train_ind = np.array(train_ind)
+    # pre-shuffle the training-set
     train_ind=train_ind[np.random.permutation(train_ind.shape[0]),:]
 
     dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1], train_ind[:, 2].astype(np.int8)))
-    #dataset = tf.data.Dataset.from_tensor_slices((train_ind[:, 0], train_ind[:, 1],train_ind[:, 2],train_ind[:, 3], train_ind[:, 4].astype(np.int8)))
 
     image = dataset.map(
         lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8, tf.uint8, tf.int8]))
-    #image = dataset.map(
-        #lambda x1,x2,y1,y2,z: tf.py_function(func=load_img, inp=[x1,x2,y1,y2,z], Tout=[tf.uint8,tf.uint8,tf.int8]))
     doc=SigNet.train(image)
 
     mode='train'
@@ -221,7 +268,10 @@ if __name__=='__main__':
             plt.title('contrastive_loss curve')
             plt.xlabel('times')
             plt.ylabel('contrastive loss')
-        start=time.time()
+
+        '''
+        给出训练集上所有图片的输出，并进行合并
+        '''
         result=[]
         label=[]
         cost=[]
@@ -240,11 +290,13 @@ if __name__=='__main__':
         for i in label:
             temp=np.concatenate([temp,i])
         label=temp.copy()
-
         cost=np.array(cost).reshape(-1,1)
         curve_eval(label,result)
         temp_result=np.vstack([result,label])
 
+        '''
+        根据训练集上结果计算判定阈值
+        '''
          # ensure threshold according to lecture
         T=temp_result[temp_result[:,1]==1,:]
         N=temp_result[temp_result[:,1]==0,:]
@@ -256,17 +308,19 @@ if __name__=='__main__':
             acc.append(judegement(T,N,i))
         acc=np.array(acc)
         threshold=d[acc.argmax()]
-        end=time.time()
-        print("time cost : %f"%(end-start))
 
     else:
-        threshold=0 # must implement training stage to speacify threshold
+        threshold=0 # must implement training stage to specify threshold
         with open('../../pair_ind/cedar_ind/test_index.pkl', 'rb') as test_index_file:
             test_ind = pickle.load(test_index_file)
         test_ind = np.array(test_ind)
         test_set= tf.data.Dataset.from_tensor_slices((test_ind[:, 0], test_ind[:, 1], test_ind[:, 2].astype(np.int8)))
         test_image = test_set.map(
             lambda x, y, z: tf.py_function(func=load_img, inp=[x, y, z], Tout=[tf.uint8, tf.uint8, tf.int8]))
+
+        '''
+        给出测试集上所有图片的输出，并进行合并
+        '''
         result=[]
         label=[]
         cost=[]
@@ -282,9 +336,10 @@ if __name__=='__main__':
         for i in label:
             temp=np.concatenate([temp,i])
         label=temp.copy()
+        cost=np.array(cost).reshape(-1,1)  # 画ROC曲线
         curve_eval(label,result)
-        cost=np.array(cost).reshape(-1,1)
 
+        # 计算准确率
         temp_result=np.vstack([result,label])
         T=temp_result[temp_result[:,1]==1,:]
         N=temp_result[temp_result[:,1]==0,:]
