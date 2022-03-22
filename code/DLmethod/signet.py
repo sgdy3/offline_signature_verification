@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 
 class signet():
-    def __init__(self,num_class):
+    def __init__(self,num_class,mod='thin'):
         self.rows=150
         self.cols=220
         self.channles=1
@@ -28,7 +28,11 @@ class signet():
         self.epochs=6
         self.optimizer=SGD(learning_rate=1e-3,momentum=0.9,nesterov=True,decay=5e-4)
 
-        self.backbone=self.backbone_thin()
+        assert mod=='thin' or 'std',"model has only two variant: thin and std"
+        if mod=='thin':
+            self.backbone=self.backbone_thin()
+        else:
+            self.backbone=self.backbone_std()
         input=Input(shape=self.imgshape)
         x=self.backbone(input)
         output=Dense(self.user_dim,activation='softmax')(x)
