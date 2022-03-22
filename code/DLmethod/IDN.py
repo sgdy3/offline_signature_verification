@@ -11,9 +11,9 @@ from auxiliary.preprocessing import hafemann_preprocess
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve,auc
 
-class stream(nn.Module):
+class StreamThin(nn.Module):
     def __init__(self):
-        super(stream, self).__init__()
+        super(StreamThin, self).__init__()
 
         self.stream = nn.Sequential(
             nn.Conv2d(1, 16, (3,3), stride=(1,1), padding=1),
@@ -70,58 +70,147 @@ class stream(nn.Module):
             reference = self.stream[3 + i * 5](reference)
             reference = self.stream[4 + i * 5](reference)
 
-
         return reference, inverse
 
-
     def attention(self, inverse, discrimnative):
-        # Conv = nn.Sequential(
-        # 	nn.Conv2d(inverse.size()[1], inverse.size()[1], (3,3), stride=(1,1), padding=1),
-        # 	nn.Sigmoid()
-        # )
+        """
+        注意力模块的设置原理：
+        1. 抽出反色流的第二层卷积结果，上采样到和判决流第一层卷积结果相同大小；
+        2. 过一层conv提取特征
+        3. 与判决流第一层卷积结果做内积再相加，类似skip connection
+        4. 分出两路，一路过GAP过FC后再reszie到原大小，成为注意力
+           注意力和另一路相乘
+        """
         GAP = nn.AdaptiveAvgPool2d((1, 1))
         sigmoid = nn.Sigmoid()
-        # fc = nn.Sequential(
-        # 	nn.Linear(inverse.size()[1], inverse.size()[1]),
-        # 	nn.Sigmoid()
-        # )
-
-        # print(inverse.size(), discrimnative.size())
         up_sample = nn.functional.interpolate(inverse, (discrimnative.size()[2], discrimnative.size()[3]), mode='nearest')
-        # g = self.Conv(up_sample)
         conv = getattr(self, 'Conv_' + str(up_sample.size()[1]), 'None')
         g = conv(up_sample)
         g = sigmoid(g)
-        # print(g.size(), discrimnative.size())
         tmp = g * discrimnative + discrimnative
         f = GAP(tmp)
         f = f.view(f.size()[0], 1, f.size()[1])
-
-        # f = self.fc(f)
         fc = getattr(self, 'fc_' + str(f.size(2)), 'None')
         f = fc(f)
         f = sigmoid(f)
         f = f.view(-1, f.size()[2], 1, 1)
-        # print(tmp.size(), f.size())
         out = tmp * f
-
         return out
 
-class net(nn.Module):
-    def __init__(self):
-        super(net, self).__init__()
 
-        self.stream = stream()
-        self.GAP = nn.AdaptiveAvgPool2d((1,1))
-        self.classifier = nn.Sequential(
-            nn.Linear(128, 128),
+class StreamStandard(nn.Module):
+    def __init__(self):
+        super(StreamStandard, self).__init__()
+
+        self.stream = nn.Sequential(
+            nn.Conv2d(1, 32, (3,3), stride=(1,1), padding=1),
             nn.ReLU(inplace=True),
-            nn.Linear(128, 128),
+            nn.Conv2d(32, 32, (3,3), stride=(1,1), padding=1),
             nn.ReLU(inplace=True),
-            nn.Linear(128, 1),
-            nn.Sigmoid()
+            nn.MaxPool2d(2, stride=2),
+
+            nn.Conv2d(32, 64, (3,3), stride=(1,1), padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, (3,3), stride=(1,1), padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, stride=2),
+
+            nn.Conv2d(64, 96, (3,3), stride=(1,1), padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(96, 96, (3,3), stride=(1,1), padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, stride=2),
+
+            nn.Conv2d(96, 128, (3,3), stride=(1,1), padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, (3,3), stride=(1,1), padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, stride=2)
         )
 
+        self.Conv_32 = nn.Conv2d(32, 32, (3, 3), stride=(1, 1), padding=1)
+        self.Conv_64 = nn.Conv2d(64, 64, (3, 3), stride=(1, 1), padding=1)
+        self.Conv_96 = nn.Conv2d(96, 96, (3, 3), stride=(1, 1), padding=1)
+        self.Conv_48 = nn.Conv2d(128, 128, (3, 3), stride=(1, 1), padding=1)
+
+
+        self.fc_32 = nn.Linear(32, 32)
+        self.fc_64 = nn.Linear(64, 64)
+        self.fc_96 = nn.Linear(96, 96)
+        self.fc_128 = nn.Linear(128, 128)
+
+
+        self.max_pool = nn.MaxPool2d(2, stride=2)
+
+    def forward(self, reference, inverse):
+        for i in range(4):
+            reference = self.stream[0 + i * 5](reference)
+            reference = self.stream[1 + i * 5](reference)
+            inverse = self.stream[0 + i * 5](inverse)
+            inverse = self.stream[1 + i * 5](inverse)
+            inverse = self.stream[2 + i * 5](inverse)
+            inverse = self.stream[3 + i * 5](inverse)
+            inverse = self.stream[4 + i * 5](inverse)
+            reference = self.attention(inverse, reference)
+            reference = self.stream[2 + i * 5](reference)
+            reference = self.stream[3 + i * 5](reference)
+            reference = self.stream[4 + i * 5](reference)
+
+        return reference,inverse
+
+    def attention(self, inverse, discrimnative):
+        """
+        注意力模块的设置原理：
+        1. 抽出反色流的第二层卷积结果，上采样到和判决流第一层卷积结果相同大小；
+        2. 过一层conv提取特征
+        3. 与判决流第一层卷积结果做内积再相加，类似skip connection
+        4. 分出两路，一路过GAP过FC后再reszie到原大小，成为注意力
+           注意力和另一路相乘
+        """
+        GAP = nn.AdaptiveAvgPool2d((1, 1))
+        sigmoid = nn.Sigmoid()
+        up_sample = nn.functional.interpolate(inverse, (discrimnative.size()[2], discrimnative.size()[3]), mode='nearest')
+        conv = getattr(self, 'Conv_' + str(up_sample.size()[1]), 'None')
+        g = conv(up_sample)
+        g = sigmoid(g)
+        tmp = g * discrimnative + discrimnative
+        f = GAP(tmp)
+        f = f.view(f.size()[0], 1, f.size()[1])
+
+        fc = getattr(self, 'fc_' + str(f.size(2)), 'None')
+        f = fc(f)
+        f = sigmoid(f)
+        f = f.view(-1, f.size()[2], 1, 1)
+        out = tmp * f
+        return out
+
+
+class Net(nn.Module):
+    def __init__(self,mod='thin'):
+        super(Net, self).__init__()
+
+        assert mod=='thin' or 'std',"model has only two variant: thin and std"
+        if mod =='thin':
+            self.stream = StreamThin()
+            self.classifier = nn.Sequential(
+                nn.Linear(128, 128),
+                nn.ReLU(inplace=True),
+                nn.Linear(128, 128),
+                nn.ReLU(inplace=True),
+                nn.Linear(128, 1),
+                nn.Sigmoid()
+            )
+        else:
+            self.stream = StreamThin()
+            self.classifier = nn.Sequential(
+                nn.Linear(128, 128),
+                nn.ReLU(inplace=True),
+                nn.Linear(128, 128),
+                nn.ReLU(inplace=True),
+                nn.Linear(128, 1),
+                nn.Sigmoid()
+            )
+        self.GAP = nn.AdaptiveAvgPool2d((1,1))
 
     def forward(self, inputs):
         half = inputs.size()[1] // 2
@@ -153,25 +242,6 @@ class net(nn.Module):
 
         return out
 
-def preprocess(img, ext_h, ext_w,dst_h=155,dst_w=220):
-    # 改进的预处理方法，不再是直接质心对齐，保持纵横比不变的情况下先将一条边扩大到指定大小，再resize到网络输入
-    h,w,=img.shape
-    scale=min(ext_h / h, ext_w / w)
-    nh=int(scale*h)
-    nw=int(scale*w)
-    img=cv2.resize(img,(nw,nh))
-    pad_row1=int((ext_h - img.shape[0]) / 2)
-    pad_row2= (ext_h - img.shape[0]) - pad_row1
-    pad_col1=int((ext_w - img.shape[1]) / 2)
-    pad_col2= (ext_w - img.shape[1]) - pad_col1
-    img=np.pad(img,((pad_row1,pad_row2),(pad_col1,pad_col2)), 'constant',constant_values=(255,255))
-    img=cv2.resize(img,(dst_w,dst_h))
-    #img=otsu(img.numpy())
-    threshold=cv2.threshold(img.astype(np.uint8),0,255,cv2.THRESH_TOZERO_INV+cv2.THRESH_OTSU)[0]#大津法确定阈值
-    img[img<threshold]=255-img[img<threshold] # 大于阈值的变为白色
-    img=255-img # 背景黑色，笔迹白色
-    img=img.astype(np.uint8)
-    return img
 
 class dataset(Dataset):
     def __init__(self, train=True):
@@ -194,15 +264,14 @@ class dataset(Dataset):
         refer, test, label = ind
         refer_img = cv2.imread(refer, 0)
         test_img = cv2.imread(test, 0)
-        # refer_img = preprocess(refer_img,820,890)
         refer_img = hafemann_preprocess(refer_img,820,890)
         refer_img=np.expand_dims(refer_img,axis=0)
 
-        # test_img = preprocess(test_img,820,890)
         test_img = hafemann_preprocess(test_img,820,890)
         test_img=np.expand_dims(test_img,axis=0)
         refer_test = np.concatenate((refer_img, test_img), axis=0)
         return torch.FloatTensor(refer_test), float(label)
+
 
 def compute_accuracy(predicted, labels):
     for i in range(3):
@@ -216,6 +285,7 @@ def compute_accuracy(predicted, labels):
     predicted = predicted.view(-1)
     accuracy = torch.sum(predicted == labels).item() / labels.size()[0]
     return accuracy
+
 
 class loss(nn.Module):
     def __init__(self):
@@ -231,6 +301,27 @@ class loss(nn.Module):
         loss_2 = self.bce_loss(y, label)
         loss_3 = self.bce_loss(z, label)
         return torch.mean(alpha_1*loss_1 + alpha_2*loss_2 + alpha_3*loss_3)
+
+
+def eval_stage(model,data_loader):
+    """
+    用模型预测数据集上的结果，画图并返回预测值
+    """
+    result=[]
+    label=[]
+    with torch.no_grad():
+        it=iter(data_loader)
+        for i in range(len(data_loader)):
+            inputs,labels=next(it)
+            if cuda:
+                inputs,labels=inputs.cuda(),labels.cuda()
+            pred=model(inputs)
+            result.append((0.3*pred[0]+0.4*pred[1]+0.3*pred[2]).cpu().numpy())
+            label.append(labels.cpu())
+    result=np.vstack(result)
+    label=np.hstack(label)
+    draw_fig(result,label)
+    return result,label
 
 
 def draw_fig(pred,label):
@@ -271,7 +362,7 @@ if __name__ == '__main__':
     # img1=torch.concat([x,x_],axis=1)
     # img2=torch.concat([y,y_],axis=1)
     # input=torch.concat([img1,img2],axis=0)
-    model=net()
+    model=Net()
     # model = model.cuda()
     # summary(model,(2,155,220),batch_size=32)
     # model(input)
@@ -281,6 +372,7 @@ if __name__ == '__main__':
     BATCH_SIZE = 32
     EPOCHS = 1
     LEARNING_RATE = 0.0003
+    save=False
 
     np.random.seed(0)
     torch.manual_seed(2)
@@ -290,19 +382,16 @@ if __name__ == '__main__':
     train_set = dataset(train=True)
     test_set = dataset(train=False)
     train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
-    test,lab=next(iter(train_loader))
-    model(test)
-
-
     test_loader = DataLoader(test_set, batch_size=2*BATCH_SIZE, shuffle=False, num_workers=0)
+    # 检验模型前向传播是否正常
+    # test,lab=next(iter(train_loader))
+    # model(test)
 
-    model = net()
     if cuda:
         model = model.cuda()
     criterion = loss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    # optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE)
-
+    # 创建日志
     writer = SummaryWriter(log_dir='../../logs/scalar')
 
     if cuda:
@@ -333,6 +422,7 @@ if __name__ == '__main__':
             # writer.add_scalar(t+'/train_loss', loss.item(), iter_n)
             # writer.add_scalar(t+'/train_accuracy', accuracy, iter_n)
 
+            # 每100epochs在测试集上评估结果
             # if i % 100== 0:
             #     with torch.no_grad():
             #         accuracys = []
@@ -348,28 +438,11 @@ if __name__ == '__main__':
 
             iter_n += 1
 
-            if i == 500:
+            if i == 500 and save:
                 torch.save(model.state_dict(), '../NetWeights/IDN/IDN.pth')
                 break
 
             print('Epoch[{}/{}], iter {}, loss:{:.6f}, accuracy:{}'.format(epoch, EPOCHS, i, loss.item(), accuracy))
-
     writer.close()
 
-    result=[]
-    label=[]
-    with torch.no_grad():
-        it=iter(test_loader)
-        for i in range(len(test_loader)):
-            inputs,labels=next(it)
-            #torch.cuda.empty_cache()  # 释放GPU显存，不确定有没有用，聊胜于无吧
-
-            if cuda:
-                inputs,labels=inputs.cuda(),labels.cuda()
-            pred=model(inputs)
-            result.append((0.3*pred[0]+0.4*pred[1]+0.3*pred[2]).cpu().numpy())
-            label.append(labels.cpu())
-
-    result=np.vstack(result)
-    label=np.hstack(label)
-    draw_fig(result,label)
+    result,label=eval_stage(model,test_loader)
