@@ -4,21 +4,23 @@
 # @Author: sgdy3
 # @E-mail: sgdy03@163.com
 # @Time: 2022/3/13
-# Descibe: pyfeats的设置过于僵硬，许多设置不能直接在feature接口中直接调用，重新实现一遍
+# Describe: pyfeats的设置过于僵硬，许多设置不能直接在feature接口中直接调用，重新实现一遍并进行纠错
 # ---
 
 
-from pyfeats import textural
 import numpy as np
 from skimage import measure
 from scipy import signal
 
-def glszm(f, mask,Ng=256,ignore_zero=True):
+
+def glszm(f,mask,Ng=256,ignore_zero=True,connectivity=2):
     '''
     Parameters
     ----------
     f : numpy ndarray
         Image of dimensions N1 x N2.
+    Ng: int,default = 256
+        maximum image level
     mask : numpy ndarray
         Mask image N1 x N2 with 1 if pixels belongs to ROI, 0 else. Give None
         if you want to consider ROI the whole image.
@@ -30,19 +32,25 @@ def glszm(f, mask,Ng=256,ignore_zero=True):
     '''
     levels=np.arange(0,Ng)
 
-    Ns = f.shape[0] * f.shape[1]  # maxsize of connected region
-    GLSZM = np.zeros((Ng,Ns), np.double)
+    Ns = f.shape[0] * f.shape[1]
+    if ignore_zero:
+        GLSZM = np.zeros((Ng-1,Ns), np.double)
+    else:
+        GLSZM = np.zeros((Ng,Ns), np.double)
+    start_level=1 if ignore_zero else 0
 
     temp = f.copy()
-    for i in range(Ng):
+    for i in range(start_level,Ng):
         temp[f!=levels[i]] = 0
         temp[f==levels[i]] = 1
-        connected_components = measure.label(temp, connectivity=2)
+        connected_components = measure.label(temp, connectivity=connectivity)
         connected_components = connected_components * mask
         nZone = len(np.unique(connected_components))
-        for j in range(nZone):
+        for j in range(1,nZone): # ignore the "0" element in connected_components
             col = np.count_nonzero(connected_components==j)
-            GLSZM[i,col-1] += 1  # 连通域size为1时对应第0列
+            # the fist column of the GLSZM represent the num of connected domain with area1
+            # the fist row of the GLSZM represent gray level 0 or 1 depending on "ignore_zero"
+            GLSZM[i-start_level,col-1] += 1
 
     return GLSZM
 
@@ -168,14 +176,17 @@ def ngtdm(f, mask, d, Ng=256):
     conv_mask = abs(np.sign(conv_mask)-1)
 
     # Calculate abs diff between actual and neighborhood
-    A = signal.convolve2d(f,kernel,'same') / (W-1)
-    diff = abs(f-A)
+    cov_mask2=signal.convolve2d(mask,kernel,'same')
+    B = signal.convolve2d(f,kernel,'same')
+    B = B/cov_mask2
+
+    diff = abs(f-B)
 
     # Construct NGTDM matrix
     S = np.zeros(Ng,np.double)
     N = np.zeros(Ng,np.double)
-    for x in range(d,(N1-d)):
-        for y in range(d,(N2-d)):
+    for x in range(N1):
+        for y in range(N2):
             if conv_mask[x,y] > 0:
                 index = f[x,y].astype('i')
                 S[index] = S[index] + diff[x,y]
@@ -186,6 +197,66 @@ def ngtdm(f, mask, d, Ng=256):
     return S, N, R
 
 
+def ngtdm_features(f, mask, d=1):
+    '''
+    Parameters
+    ----------
+    f : numpy ndarray
+        Image of dimensions N1 x N2.
+    mask : numpy ndarray
+        Mask image N1 x N2 with 1 if pixels belongs to ROI, 0 else. Give None
+        if you want to consider ROI the whole image.
+    d : int, optional
+        Distance for NGTDM. Default is 1.
 
-test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
-g_m=glszm(test_arr,np.ones(test_arr.shape),6)
+    Returns
+    -------
+    features : numpy ndarray
+        1)Coarseness, 2)Contrast, 3)Busyness, 4)Complexity, 5)Strength.
+    labels : list
+        Labels of features.
+    '''
+
+    if mask is None:
+        mask = np.ones(f.shape)
+
+    # 1) Labels
+    labels = ["NGTDM_Coarseness","NGTDM_Contrast","NGTDM_Busyness",
+              "NGTDM_Complexity","NGTDM_Strngth"]
+
+    # 2) Parameters
+    f  = f.astype(np.uint8)
+    mask = mask.astype(np.uint8)
+    Ng = 256
+
+    # 3) Calculate NGTDM
+    S, N, R = ngtdm(f, mask, d, Ng)
+
+    # 4) Calculate Features
+    features = np.zeros(5,np.double)
+    Ni, Nj = np.meshgrid(N,N)
+    Si, Sj = np.meshgrid(S,S)
+    i, j = np.meshgrid(np.arange(Ng),np.arange(Ng))
+    ilessjsq = ((i-j)**2).astype(np.double)
+    Ni = np.multiply(Ni,abs(np.sign(Nj)))
+    Nj = np.multiply(Nj,abs(np.sign(Ni)))
+    features[0] = R*R / sum(np.multiply(N,S))
+    features[1] = sum(S)*sum(sum(np.multiply(np.multiply(Ni,Nj),ilessjsq)))/R**3/Ng/(Ng-1)
+    temp = np.multiply(i,Ni) - np.multiply(j,Nj)
+    features[2] = sum(np.multiply(N,S)) / sum(sum(abs(temp))) / R
+    temp = np.multiply(Ni,Si) + np.multiply(Nj,Sj)
+    temp2 = np.multiply(abs(i-j),temp)
+    temp3 = np.divide(temp2,Ni+Nj+1e-16)
+    features[3] = sum(sum(temp3)) / R
+    features[4] = sum(sum(np.multiply(Ni+Nj,ilessjsq))) / (sum(S)+1e-16)
+
+    return features, labels
+
+
+if __name__=="__main__":
+    test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
+    g_m=glszm(test_arr,np.ones(test_arr.shape),6)
+    test_arr=np.array([[1,2,5,2],[3,5,1,3],[1,3,5,5],[3,1,1,1]])
+    temp=np.ones(test_arr.shape)
+    # temp[1,2]=0
+    ngtdmat=ngtdm(test_arr,temp,1,6)
