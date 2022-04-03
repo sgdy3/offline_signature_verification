@@ -28,8 +28,14 @@
 确定了两件事：
 1. 纹理特征之间确实是高度相关的，通过计算特征彼此间的相关系数可以证明这一点，但glcm,glrlm,ngtd彼此间的相关性
    没有那么强，这可能意味着我们确实又需要求取所有特征而不能舍弃。
-2. 不同签名间的纹理特征相差过大，使用其他用户的真实签名作为正样本训练得到的结果非常差。
-# TODO 先对这些特征分组验证认证结果吧，看哪个特征辨别力强，还是组合起来强
+2. resize与否对于特征的区别性有着很大的影响
+
+2022/04/02
+------------------
+目前结论：
+1. 特征一起用比单独用或者组合任意俩个要好，但glszm还是太费时，舍弃吧。
+2. PCA降维很有用
+3. 不要resize后提取纹理特征
 
 '''
 
@@ -150,15 +156,15 @@ glszm_time=[]
 ngtd_time=[]
 gldm_time=[]
 
-user=7
-id=6
-org_vec,forg_vec=feature_extraction(user,id)
+# user=7
+# id=6
+# org_vec,forg_vec=feature_extraction(user,id)
 
 load=True
 if not load:
     org_vecs=[]
     forg_vecs=[]
-    for user in range(20,user_num+1):
+    for user in range(1,user_num+1):
         start=time.perf_counter()
         for id in range(1,sig_num+1):
             org_vec,forg_vec=feature_extraction(user,id)

@@ -121,6 +121,9 @@ model=KMeans(n_clusters=M,random_state=3)
 model.fit(sigs)
 
 
+'''
+根据类内距离和类间距离的比值判断真实签名还是伪造签名
+'''
 # 用户相关判别，需要先得到用户模板的FM
 # forg_template=[]
 # org_template=[]
