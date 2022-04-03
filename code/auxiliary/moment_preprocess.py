@@ -10,6 +10,7 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy import ndimage
 
 
 def moment_preprocess(img,dst_w=220,dst_h=150):
@@ -20,11 +21,18 @@ def moment_preprocess(img,dst_w=220,dst_h=150):
     return cropped_img
 
 
-def denoise(img):
-    threshold, binarized_img = cv2.threshold(img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)  # 大于OTSU的为噪声，设置为255
+def denoise(img,reigon_mask=False):
+    radius=2
+    blurred_img=ndimage.gaussian_filter(img,radius)
+    threshold, binarized_img = cv2.threshold(blurred_img, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)  # 大于OTSU的为噪声，设置为255
     r, c = np.where(binarized_img == 255)  # 有笔画的位置
     img[img>threshold]=255
-    return img
+    if reigon_mask:
+        # 返回包含签名的最小矩形框
+        cropped = img[r.min(): r.max(), c.min(): c.max()]
+        return cropped
+    else:
+        return img
 
 
 def resize_img(img, img_size=(150,220), K=2.5):
