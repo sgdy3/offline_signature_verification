@@ -6,14 +6,18 @@
 # @Time: 2022/3/30
 # Describe: 尝试编写代码获取图像的NGLDM
 # ---
-import time
-import numpy as np
+
 
 '''
 2022/04/02
 -------------------
 GLDM的计算速度并不快，问题主要出现在im2col,占据了总运算时间的5/6，需要进行优化
+已优化，快的飞起
 '''
+
+import time
+import numpy as np
+
 
 
 def im2col(mtx, block_size):
@@ -58,11 +62,8 @@ def _apply_over_degree(function, x1, x2):
 def GLDM(img,d=1,threshold=0,Ng=256,ignore_zero=True):
     img=np.pad(img,((d,d),(d,d)),constant_values=(-1,-1))  # 对原图进行padding，使得计算可以从边缘位置开始
     window_size=(2*d+1)
-    start=time.perf_counter()
     #ravel=im2col(img,(window_size,window_size))
     ravel=im2col_sliding_broadcasting(img,(window_size,window_size))
-    end=time.perf_counter()
-    print(f"im2col耗时{end-start}s")
     center=ravel[window_size+1,:]
     diff=ravel-center
     counts=(abs(diff)<=threshold).sum(axis=0) # 计算核范围内与中心差值绝对值小于阈值的点数目
@@ -78,10 +79,7 @@ def GLDM(img,d=1,threshold=0,Ng=256,ignore_zero=True):
     return gldm
 
 def gldm_features(img,d=1,threshold=0,Ng=256,ignore_zero=True):
-    start=time.perf_counter()
     gldm=GLDM(img,d,threshold,Ng,ignore_zero)
-    end=time.perf_counter()
-    print(f"计算矩阵用时{end-start}")
     features = np.zeros(14,np.double)
     feature_label=["Small Dependence Emphasis","Large Dependence Emphasis","Gray Level Non-Uniformity",
                 "Dependence Non-Uniformity","Dependence Non-Uniformity Normalized ","Gray Level Variance",
@@ -99,7 +97,6 @@ def gldm_features(img,d=1,threshold=0,Ng=256,ignore_zero=True):
     p=gldm/S
     epsilon=2.2*1e16
 
-    start=time.perf_counter()
     # 感觉官网small dependence emphasis 的公式写错了，应该是除以J^2的
     features[0]=(np.apply_over_axes(np.sum,_apply_over_degree(np.divide,gldm,(J*J)),axes=(0,1))[0,0])/S
     features[1]=(np.apply_over_axes(np.sum,_apply_over_degree(np.multiply,gldm,(J*J)),axes=(0,1))[0,0])/S
@@ -124,8 +121,6 @@ def gldm_features(img,d=1,threshold=0,Ng=256,ignore_zero=True):
     features[12] = (np.apply_over_axes(np.sum,_apply_over_degree(np.divide,temp,(I*I)),axes=(0,1))[0,0])/S
     features[13] = (np.apply_over_axes(np.sum,_apply_over_degree(np.multiply,temp,(I*I)),axes=(0,1))[0,0])/S
 
-    end=time.perf_counter()
-    print(f"计算特征用时{end-start}")
 
     return  features,feature_label
 
