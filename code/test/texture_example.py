@@ -158,7 +158,7 @@ glrmat=cooccurence(test_arr,0)
 此外默认灰度级为0~255的256级，计算各方向GLRLM时忽略灰阶为0那一行，再此外，mask参数是无效的
 以下验证了矩阵计算结果正确，无需自己编辑函数
 '''
-test_arr=np.array([[4,1,4,3,3],[2,2,2,0,2],[1,0,0,0,2],[3,1,1,1,2],[2,4,2,2,1]])
+test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
 glrlm_feature,glrlm_lab=pf.glrlm_features(test_arr,None)
 glrlm_f0=glrlm_0(test_arr,np.ones(test_arr.shape),5,max(test_arr.shape),False)
 
@@ -172,7 +172,7 @@ glrlm_f0=glrlm_0(test_arr,np.ones(test_arr.shape),5,max(test_arr.shape),False)
 4. 统计了某个灰阶所有连通域时，还将图中非该灰阶的部分统计了并作为对应面积大小的，出现频率为1的连通域存在
 修改后的mat计算方式放在上方my_glszm()
 '''
-test_arr=np.array([[4,1,4,3,3],[2,2,2,0,2],[1,0,0,0,2],[3,1,1,1,2],[2,4,2,2,1]])
+test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
 test_arr=test_arr+(255-4)
 glszm_feature,glszm_lab=pf.glszm_features(test_arr,None)
 glszmat=glszm(test_arr,np.ones(test_arr.shape))

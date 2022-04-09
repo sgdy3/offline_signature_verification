@@ -42,18 +42,14 @@
 import cv2
 import numpy as np
 from sklearn.svm import SVC
-from auxiliary.moment_preprocess import moment_preprocess
 from sklearn.metrics import roc_curve, auc
 import matplotlib.pyplot as plt
 import pyfeats as pf
 from auxiliary.moment_preprocess import denoise
-from auxiliary.texture_mat import glszm_features
 from auxiliary.texture_mat import ngtdm_features
-from sklearn.decomposition import PCA
 from sklearn.preprocessing import MinMaxScaler
 import time
-from auxiliary.GLDM import gldm_features
-from itertools import combinations
+from auxiliary.texture.GLDM import gldm_features
 
 
 def curve_eval(label,result):
@@ -89,17 +85,17 @@ def feature_extraction(user,id):
     org_sig=denoise(org_sig)
     org_sig=255-org_sig
 
-    start=time.perf_counter()
+    # start=time.perf_counter()
     glcm_f,_,_,_=pf.glcm_features(org_sig,ignore_zeros=True)
-    end=time.perf_counter()
-    glcm_time.append((end-start))
-    print(f"glcm用时：{end-start}s")
+    # end=time.perf_counter()
+    # glcm_time.append((end-start))
+    # print(f"glcm用时：{end-start}s")
 
-    start=time.perf_counter()
+    # start=time.perf_counter()
     glrlm_f,_=pf.glrlm_features(org_sig,np.ones(org_sig.shape))
-    end=time.perf_counter()
-    glrlm_time.append((end-start))
-    print(f"glrlm用时：{end-start}s")
+    # end=time.perf_counter()
+    # glrlm_time.append((end-start))
+    # print(f"glrlm用时：{end-start}s")
 
     # start=time.perf_counter()
     # glszm_f,_=glszm_features(org_sig,np.ones(org_sig.shape))
@@ -107,20 +103,20 @@ def feature_extraction(user,id):
     # glszm_time.append((end-start))
     # print(f"glszm用时：{end-start}s")
 
-    start=time.perf_counter()
+    # start=time.perf_counter()
     ngtd_f,_=ngtdm_features(org_sig,np.ones(org_sig.shape))
-    end=time.perf_counter()
-    ngtd_time.append((end-start))
-    print(f"ngtdm用时：{end-start}s")
+    # end=time.perf_counter()
+    # ngtd_time.append((end-start))
+    # print(f"ngtdm用时：{end-start}s")
 
-    start=time.perf_counter()
-    gldm_f=gldm_features(org_sig)
-    end=time.perf_counter()
-    ngtd_time.append((end-start))
-    print(f"gldm用时：{end-start}s")
+    # start=time.perf_counter()
+    gldm_f,_=gldm_features(org_sig)
+    # end=time.perf_counter()
+    # ngtd_time.append((end-start))
+    # print(f"gldm用时：{end-start}s")
 
     #org_vec=np.concatenate([glcm_f,glrlm_f,glszm_f,ngtd_f])
-    org_vec=np.concatenate([glcm_f,glrlm_f,ngtd_f])
+    org_vec=np.concatenate([glcm_f,glrlm_f,ngtd_f,gldm_f])
 
     forg_ind=forg_path%(user,id)
     forg_sig=cv2.imread(forg_ind,0)
@@ -160,7 +156,7 @@ gldm_time=[]
 # id=6
 # org_vec,forg_vec=feature_extraction(user,id)
 
-load=True
+load=False
 if not load:
     org_vecs=[]
     forg_vecs=[]

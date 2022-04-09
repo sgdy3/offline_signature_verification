@@ -27,7 +27,7 @@ import cv2
 import numpy as np
 import esig
 from auxiliary.texture_mat import ngtdm_features
-from auxiliary.GLDM import gldm_features
+from auxiliary.texture.GLDM import gldm_features
 import pyfeats as pf
 from auxiliary.moment_preprocess import denoise
 from sklearn.preprocessing import MinMaxScaler
