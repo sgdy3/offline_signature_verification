@@ -125,19 +125,5 @@ def gldm_features(img,d=1,threshold=0,Ng=256,ignore_zero=True):
     return  features,feature_label
 
 if __name__=='__main__':
-    Ng=6
-    d=1
-    window_size=(2*d+1)
     test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
-    test_arr=np.pad(test_arr,((d,d),(d,d)),constant_values=(-1,-1))
-    ravel=im2col(test_arr,(window_size,window_size))
-    center=ravel[window_size+1,:]
-    counts=(ravel==center).sum(axis=0)
-    counts-=1
 
-    gldm=np.zeros((Ng,window_size**2))
-    counts=np.vstack([center,counts])
-    counts=counts.astype(int)
-    freq=np.unique(counts,return_counts=True,axis=1)
-    gldm[freq[0][0],freq[0][1]]=freq[1]
-    gldm_f,_=gldm_features(test_arr,Ng=6)

@@ -1,16 +1,20 @@
 # -*- coding: utf-8 -*-
 # ---
-# @File: texture_mat.py
+# @File: GLSZM.py
 # @Author: sgdy3
 # @E-mail: sgdy03@163.com
-# @Time: 2022/3/13
-# Describe: pyfeats的设置过于僵硬，许多设置不能直接在feature接口中直接调用，重新实现一遍并进行纠错
+# @Time: 2022/4/10
+# Describe: 本地代码迁移过来的GLSZM实现
 # ---
 
 
+
+'''
+对于pyfeats中glszm的纠正版本，原始的在联通域计算统计方面存在问题
+'''
+
 import numpy as np
 from skimage import measure
-from scipy import signal
 
 
 def glszm(f,mask,Ng=256,ignore_zero=True,connectivity=2):
@@ -54,7 +58,7 @@ def glszm(f,mask,Ng=256,ignore_zero=True,connectivity=2):
 
     return GLSZM
 
-def glszm_features(f, mask):
+def glszm_features(f, mask,Ng=256):
     '''
     Parameters
     ----------
@@ -89,7 +93,7 @@ def glszm_features(f, mask):
               'GLSZM_LargeZoneHighGrayLevelEmphasis', 'GLSZM_GrayLevelVariance',
               'GLSZM_ZoneSizeVariance','GLSZM_ZoneSizeEntropy']
 
-    P = glszm(f, mask)
+    P = glszm(f, mask,Ng=Ng)
     # FIXME
     #idx = np.argwhere(np.all(P[..., :] == 0, axis=0))
     #P = np.delete(P, idx, axis=1)
@@ -128,135 +132,6 @@ def glszm_features(f, mask):
 
     return features, labels
 
-
-
-def _image_xor(f):
-    # Turn "0" to "1" and vice versa: XOR with image consisting of "1"s
-    f = f.astype(np.uint8)
-    mask = np.ones(f.shape, np.uint8)
-    out = np.zeros(f.shape, np.uint8)
-    for i in range(f.shape[0]):
-        for j in range(f.shape[1]):
-            out[i,j] = f[i,j] ^ mask[i,j]
-    return out
-
-
-def ngtdm(f, mask, d, Ng=256):
-    '''
-    Parameters
-    ----------
-    f : numpy ndarray
-        Image of dimensions N1 x N2.
-    mask : numpy ndarray
-        Mask image N1 x N2 with 1 if pixels belongs to ROI, 0 else.
-    d : int, optional
-        Distance for NGTDM. Default is 1.
-    Ng : int, optional
-        Image number of gray values. The default is 256.
-
-    Returns
-    -------
-    S : numpy ndarray
-    N : numpy ndarray
-    R : numpy ndarray
-    '''
-
-    f = f.astype(np.double)
-    N1, N2 = f.shape
-    oneskernel = np.ones((2*d+1,2*d+1))
-    kernel = oneskernel.copy()
-    kernel[d,d] = 0
-    W = (2*d + 1)**2
-
-    # Get complementary mask
-    mask_c = _image_xor(mask)
-
-    # Find which pixels are inside mask for convolution
-    conv_mask = signal.convolve2d(mask_c,oneskernel,'same')
-    conv_mask = abs(np.sign(conv_mask)-1)
-
-    # Calculate abs diff between actual and neighborhood
-    cov_mask2=signal.convolve2d(mask,kernel,'same')
-    B = signal.convolve2d(f,kernel,'same')
-    B = B/cov_mask2
-
-    diff = abs(f-B)
-
-    # Construct NGTDM matrix
-    S = np.zeros(Ng,np.double)
-    N = np.zeros(Ng,np.double)
-    for x in range(N1):
-        for y in range(N2):
-            if mask[x,y] > 0:
-                index = f[x,y].astype('i')
-                S[index] = S[index] + diff[x,y]
-                N[index] += 1
-
-    R = sum(N)
-
-    return S, N, R
-
-
-def ngtdm_features(f, mask, d=1):
-    '''
-    Parameters
-    ----------
-    f : numpy ndarray
-        Image of dimensions N1 x N2.
-    mask : numpy ndarray
-        Mask image N1 x N2 with 1 if pixels belongs to ROI, 0 else. Give None
-        if you want to consider ROI the whole image.
-    d : int, optional
-        Distance for NGTDM. Default is 1.
-
-    Returns
-    -------
-    features : numpy ndarray
-        1)Coarseness, 2)Contrast, 3)Busyness, 4)Complexity, 5)Strength.
-    labels : list
-        Labels of features.
-    '''
-
-    if mask is None:
-        mask = np.ones(f.shape)
-
-    # 1) Labels
-    labels = ["NGTDM_Coarseness","NGTDM_Contrast","NGTDM_Busyness",
-              "NGTDM_Complexity","NGTDM_Strngth"]
-
-    # 2) Parameters
-    f  = f.astype(np.uint8)
-    mask = mask.astype(np.uint8)
-    Ng = 256
-
-    # 3) Calculate NGTDM
-    S, N, R = ngtdm(f, mask, d, Ng)
-
-    # 4) Calculate Features
-    features = np.zeros(5,np.double)
-    Ni, Nj = np.meshgrid(N,N)
-    Si, Sj = np.meshgrid(S,S)
-    i, j = np.meshgrid(np.arange(Ng),np.arange(Ng))
-    ilessjsq = ((i-j)**2).astype(np.double)
-    Ni = np.multiply(Ni,abs(np.sign(Nj)))
-    Nj = np.multiply(Nj,abs(np.sign(Ni)))
-    features[0] = R*R / sum(np.multiply(N,S))
-    features[1] = sum(S)*sum(sum(np.multiply(np.multiply(Ni,Nj),ilessjsq)))/R**3/Ng/(Ng-1)
-    temp = np.multiply(i,Ni) - np.multiply(j,Nj)
-    features[2] = sum(np.multiply(N,S)) / sum(sum(abs(temp))) / R
-    temp = np.multiply(Ni,Si) + np.multiply(Nj,Sj)
-    temp2 = np.multiply(abs(i-j),temp)
-    temp3 = np.divide(temp2,Ni+Nj+1e-16)
-    features[3] = sum(sum(temp3)) / R
-    features[4] = sum(sum(np.multiply(Ni+Nj,ilessjsq))) / (sum(S)+1e-16)
-
-    return features, labels
-
-
 if __name__=="__main__":
     test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
     g_m=glszm(test_arr,np.ones(test_arr.shape),6)
-    test_arr=np.array([[1,2,5,2],[3,5,1,3],[1,3,5,5],[3,1,1,1]])
-    temp=np.ones(test_arr.shape)
-    temp[1,2]=0
-    ngtdmat=ngtdm(test_arr,temp,1,6)

@@ -8,28 +8,14 @@
 # ---
 
 
+'''
+2022/04/10
+结果表面自己的方法在Ng=256时的运算速率略高于原始的方法（25s:24s）；
+当Ng较小时，运算速率大幅提升，且Ng越小提升越显著(2.5s:15s)。
+'''
+
 import numpy as np
 import itertools
-
-def glrlm_0(f, mask, grayLevel=5, runLength=5, skipFirstRow=True):
-    degree0Matrix = np.zeros([grayLevel, runLength])
-    counter = 0
-    for y in range(f.shape[0]):
-        for x in range(f.shape[1]):
-            nowVal = f[y][x]
-            if x + 1 >= f.shape[1]:
-                nextVal = None
-            else:
-                nextVal = f[y][x + 1]
-            if nextVal != nowVal and counter == 0:
-                degree0Matrix[int(nowVal)][counter] += 1
-            elif nextVal == nowVal:
-                counter += 1
-            elif nextVal != nowVal and counter != 0:
-                degree0Matrix[int(nowVal)][counter] += 1
-                counter = 0
-
-    return degree0Matrix[1:,:] if skipFirstRow else degree0Matrix
 
 
 def my_glrlm_0(f,Ng=5,Nr=5,ignore_zero=True):
@@ -62,24 +48,6 @@ def my_glrlm_0(f,Ng=5,Nr=5,ignore_zero=True):
 
 
 
-def glrlm_90(f, mask, grayLevel=5, runLength=5, skipFirstRow=True):
-    degree90Matrix = np.zeros([grayLevel, runLength])
-    counter = 0
-    for x in range(f.shape[1]):
-        for y in range(f.shape[0]):
-            nowVal = f[y][x]
-            if y + 1 >= f.shape[0]:
-                nextVal = None
-            else:
-                nextVal = f[y + 1][x]
-            if nextVal != nowVal and counter == 0:
-                degree90Matrix[int(nowVal)][counter] += 1
-            elif nextVal == nowVal:
-                counter += 1
-            elif nextVal != nowVal and counter != 0:
-                degree90Matrix[int(nowVal)][counter] += 1
-                counter = 0
-    return degree90Matrix[1:,:] if skipFirstRow else degree90Matrix
 
 def my_glrlm_90(f,Ng=5,Nr=5,ignore_zero=True):
     """
@@ -110,53 +78,6 @@ def my_glrlm_90(f,Ng=5,Nr=5,ignore_zero=True):
     degreeMatrix=degreeMatrix[:Ng,:]
     return degreeMatrix[1:,:] if ignore_zero else degreeMatrix
 
-def glrlm_45(f, mask, grayLevel=5, runLength=5, skipFirstRow=True):
-    degree45Matrix = np.zeros([grayLevel, runLength])
-    for y in range(f.shape[0]):
-        counter = 0
-        i_range = max(f.shape)
-        for i in range(i_range):
-            y1 = y - i
-            if i >= f.shape[1] or y1 < 0:
-                break
-            else:
-                nowVal = f[y1][i]
-            if y1 - 1 < 0 or i + 1 >= f.shape[1]:
-                nextVal = None
-            else:
-                nextVal = f[y1 - 1][i + 1]
-            if nextVal != nowVal and counter == 0:
-                degree45Matrix[int(nowVal)][counter] += 1
-            elif nextVal == nowVal:
-                counter += 1
-            elif nextVal != nowVal and counter != 0:
-                degree45Matrix[int(nowVal)][counter] += 1
-                counter = 0
-    for x in range(f.shape[1]):
-        if x == f.shape[1] - 1:
-            break
-        counter = 0
-        i_range = max(f.shape)
-        for i in range(i_range):
-            y_i = -1 - i
-            x_i = -1 + i - x
-            if x_i >= 0 or y_i <= -1 - f.shape[0]:
-                break
-            else:
-                nowVal = f[y_i][x_i]
-            if y_i - 1 <= -(f.shape[0] + 1) or x_i + 1 >= 0:
-                nextVal = None
-            else:
-                nextVal = f[y_i - 1][x_i + 1]
-            if nextVal != nowVal and counter == 0:
-                degree45Matrix[int(nowVal)][counter] += 1
-            elif nextVal == nowVal:
-                counter += 1
-            elif nextVal != nowVal and counter != 0:
-                degree45Matrix[int(nowVal)][counter] += 1
-                counter = 0
-    degree45Matrix[0,1:] = 0
-    return degree45Matrix[1:,:] if skipFirstRow else degree45Matrix
 
 def my_glrlm_45(f,Ng=5,Nr=5,ignore_zero=True):
     """
@@ -188,52 +109,7 @@ def my_glrlm_45(f,Ng=5,Nr=5,ignore_zero=True):
     return degreeMatrix[1:,:] if ignore_zero else degreeMatrix
 
 
-def glrlm_135(f, mask, grayLevel=5, runLength=5, skipFirstRow=True):
-    degree135Matrix = np.zeros([grayLevel, runLength])
-    for y in range(f.shape[0]):
-        counter = 0
-        i_range = max(f.shape)
-        for i in range(i_range):
-            y1 = y + i
-            if y1 >= f.shape[0] or i >= f.shape[1]:
-                break
-            else:
-                nowVal = f[y1][i]
-                if y1 >= f.shape[0] - 1 or i >= f.shape[1] - 1:
-                    nextVal = None
-                else:
-                    nextVal = f[y1 + 1][i + 1]
-                if nextVal != nowVal and counter == 0:
-                    degree135Matrix[int(nowVal)][counter] += 1
-                elif nextVal == nowVal:
-                    counter += 1
-                elif nextVal != nowVal and counter != 0:
-                    degree135Matrix[int(nowVal)][counter] += 1
-                    counter = 0
-    for x in range(f.shape[1]):
-        if x == 0:
-            continue
-        i_range = max(f.shape)
-        counter = 0
-        for i in range(i_range):
-            x1 = x + i
-            if i >= f.shape[0] or x1 >= f.shape[1]:
-                break
-            else:
-                nowVal = f[i][x1]
-            if i >= f.shape[0] - 1 or x1 >= f.shape[1] - 1:
-                nextVal = None
-            else:
-                nextVal = f[i + 1][x1 + 1]
-            if nextVal != nowVal and counter == 0:
-                degree135Matrix[int(nowVal)][counter] += 1
-            elif nextVal == nowVal:
-                counter += 1
-            elif nextVal != nowVal and counter != 0:
-                degree135Matrix[int(nowVal)][counter] += 1
-                counter = 0
-    degree135Matrix[0,1:] = 0
-    return degree135Matrix[1:,:] if skipFirstRow else degree135Matrix
+
 
 def my_glrlm_135(f,Ng=5,Nr=5,ignore_zero=True):
     """
@@ -284,7 +160,7 @@ def _calculate_ij (rlmatrix):
 def _calculate_s(rlmatrix):
     return np.apply_over_axes(np.sum, rlmatrix, axes=(0, 1))[0, 0]
 
-def glrlm(f, mask, Ng=256):
+def my_glrlm(f,Ng=256):
     '''
     Parameters
     ----------
@@ -292,8 +168,6 @@ def glrlm(f, mask, Ng=256):
         Image of dimensions N1 x N2.
     mask : numpy ndarray
         Mask image N1 x N2 with 1 if pixels belongs to ROI, 0 else.
-    Ng : int, optional
-        Image number of gray values. The default is 256.
 
     Returns
     -------
@@ -301,22 +175,20 @@ def glrlm(f, mask, Ng=256):
         GLRL Matrices for 0, 45, 90 and 135 degrees.
     '''
     runLength = max(f.shape)
-    mat0 = glrlm_0(f, mask, grayLevel=Ng, runLength=runLength)
-    mat45 = glrlm_45(f, mask, grayLevel=Ng, runLength=runLength)
-    mat90 = glrlm_90(f, mask, grayLevel=Ng, runLength=runLength)
-    mat135 = glrlm_135(f, mask, grayLevel=Ng, runLength=runLength)
+    mat0 = my_glrlm_0(f, Ng=Ng, Nr=runLength,ignore_zero=True)
+    mat45 = my_glrlm_45(f, Ng=Ng, Nr=runLength,ignore_zero=True)
+    mat90 = my_glrlm_90(f, Ng=Ng, Nr=runLength,ignore_zero=True)
+    mat135 = my_glrlm_135(f, Ng=Ng, Nr=runLength,ignore_zero=True)
     mat = np.dstack((mat0, mat45, mat90, mat135))
     return mat
 
-def glrlm_features(f, mask, Ng=256):
+
+def glrlm_features(f,Ng=256):
     '''
     Parameters
     ----------
     f : numpy ndarray
         Image of dimensions N1 x N2.
-    mask : numpy ndarray
-        Mask image N1 x N2 with 1 if pixels belongs to ROI, 0 else. Give None
-        if you want to consider ROI the whole image.
     Ng : int, optional
         Image number of gray values. The default is 256.
 
@@ -334,8 +206,6 @@ def glrlm_features(f, mask, Ng=256):
         Labels of features.
     '''
 
-    if mask is None:
-        mask = np.ones(f.shape)
 
     labels = ["GLRLM_ShortRunEmphasis",
               "GLRLM_LongRunEmphasis",
@@ -349,7 +219,7 @@ def glrlm_features(f, mask, Ng=256):
               "GLRLM_LongRunLowGrayLevelEmphasis",
               "GLRLM_LongRunHighGrayLevelEmphasis"]
 
-    rlmatrix = glrlm(f, mask, Ng)
+    rlmatrix = my_glrlm(f,Ng)
 
     I, J = _calculate_ij(rlmatrix)
     S = _calculate_s(rlmatrix)
@@ -381,5 +251,45 @@ def glrlm_features(f, mask, Ng=256):
 
 
 if __name__=="__main__":
-    test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
-    mat1=my_glrlm_0(test_arr,6,5)
+
+    from pyfeats.textural.glrlm import glrlm
+    import cv2
+    import time
+    from auxiliary.moment_preprocess import denoise
+
+
+    org_path = r'E:\material\signature\signatures\full_org\original_%d_%d.png'
+
+    img=cv2.imread(org_path%(1,2),0)
+    img=denoise(img)
+    img=255-img
+    glrmat=my_glrlm(img)
+    glrmat1=glrlm(img,np.ones(img.shape))
+    if not (glrmat1!=glrmat).sum():
+        print("正确的")
+
+    
+
+    # 效率对比
+    # start=time.perf_counter()
+    # for i in range(1,21):
+    #     img=cv2.imread(org_path%(1,i),0)
+    #     img=denoise(img)
+    #     img=255-img
+    #     img=np.round(img/255*8).astype(np.uint)
+    #     glrmat=my_glrlm(img)
+    # end=time.perf_counter()
+    # print(end-start)
+    #
+    # start=time.perf_counter()
+    # for i in range(1,21):
+    #     img=cv2.imread(org_path%(1,i),0)
+    #     img=denoise(img)
+    #     img=255-img
+    #     img=np.round(img/255*8).astype(np.uint)
+    #     glrmat=glrlm(img,np.ones(img.shape))
+    # end=time.perf_counter()
+    # print(end-start)
+
+    # test_arr=np.array([[5,2,5,4,4],[3,3,3,1,3],[2,1,1,1,3],[4,2,2,2,3],[3,5,3,3,2]])
+    # mat1=my_glrlm_0(test_arr,6,5)
